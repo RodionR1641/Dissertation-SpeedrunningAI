@@ -6,23 +6,20 @@ import os
 from breakout import *
 import keyboard
 from model import AtariNet
+from agent import Agent
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-environment = DQNBreakout(device=device, render_mode="human")
+environment = DQNBreakout(device=device)
 
 user_input = False
 
-model = AtariNet(nb_actions=4)
-model.to(device) # make sure its on the right device
+model = AtariNet(nb_actions=4) #4 actions for agent can do in this game
+model.to(device) # move torch module/network to a specific device
 
 model.load_model()
-
-state = environment.reset()
-
-print(model.forward(state))
 
 if(user_input):
     done = False
@@ -41,10 +38,12 @@ if(user_input):
         _,_,done, _= environment.step(action)
 
 else:
-    
-    for _ in range(100):
-        action = environment.action_space.sample()
-        # we dont tell anything to the enviroment to tell that the lives losing is bad
-        #environment = environment.unwrapped
-        
-        state, reward, done, info = environment.step(action) #state is the observation here i.e. a processed image
+    #nb_warmup -> time it takes for epsilon to decay from 1 to min_epsilon
+    agent = Agent(model=model,device=device,epsilon=1.0,nb_warmup=5000,
+                  nb_actions=4,
+                  learning_rate=0.00001, #having it lower than 0.00001 is needed to get really good, but for starting out its
+                  #fine to keep it here. as agent gets better, can decrease it with code
+                  memory_capacity=1000000,
+                  batch_size=64)
+
+    agent.train(env=environment, epochs=200000) #pass the DQNBreakout environment for agent to train on

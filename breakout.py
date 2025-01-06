@@ -5,23 +5,25 @@ import cv2
 from PIL import Image
 import torch
 
-#subclass of wrapper
+#Responsible for setting up the environment, pre-processing state(images) and
+#overriding the default step and reset methods to be specific for this game
+#good to have this class separate as a lot of code can be reused and just change this class for a different environment
+#contains the environment within itself, but is a Wrapper so has more stuff
 class DQNBreakout(gym.Wrapper):
     #rgb_array gives pixel info of game for us to work with
     # human mode actually allows to see
     def __init__(self, render_mode='rgb_array',repeat=4,device='cpu'):
         env = gym.make("BreakoutNoFrameskip-v4",render_mode=render_mode)
 
-        super(DQNBreakout,self).__init__(env)
+        super(DQNBreakout,self).__init__(env)#parent class initialiser, gym wrapper
 
-        #self.env = env
         self.repeat = repeat
         self.lives = env.ale.lives()#need to train our agent to learn that losing a life in game is bad
-        self.frame_buffer = []
+        self.frame_buffer = [] #store seen frames of the game
         self.device = device
-        self.image_shape = (84,84)
+        self.image_shape = (84,84) #downsize images for processing
 
-    #take action on an environment ->returns a state etc
+    #take action on an environment ->returns a state 
     def step(self,action):
         total_reward = 0
         done = False
@@ -30,18 +32,20 @@ class DQNBreakout(gym.Wrapper):
         # take same action 4 frames in a row, what the frame means basically
         # take max of the last 2 frames
         for i in range(self.repeat):
-            observation,reward,done, info = self.env.step(action)
+            observation,reward,done, info = self.env.step(action) # the reward function e.g. for breakout, is defined within that 
+            #environment. In breakout, breaking a brick gives a reward
 
             total_reward += reward #add to total_reward from cycle. necessary because of our repeating action
             #caption the number of lives
-            print(info,total_reward)
+            #print(info,total_reward)
 
             current_lives = info['lives']
 
             #start of with 5 lives
             if current_lives < self.lives:
+                #can experiment with this number
                 total_reward = total_reward - 1 # can be any number. We want to have losing live to have same impact though. 
-                #positve impact for scoring, same amount of negative impact if agent lost a live compared to getting a reward
+                #positive impact for scoring, same amount of negative impact if agent lost a live compared to getting a reward
                 self.lives = current_lives
 
             #print(f"lives: {self.lives}, Total reward: {total_reward}")
@@ -51,14 +55,18 @@ class DQNBreakout(gym.Wrapper):
             if done:
                 break
         
+        #take the frame with most pixels as some images can get blurry and faded, so want better frames basically
         max_frame = np.max(self.frame_buffer[-2:],axis=0) # grab last 2 frames, take max
         #can store this stuff in a buffer
-        #what does .to() do?
 
-        #take the frame with most pixels as some images can get blurry and faded, so want better frames basically
+        #now process max_frame
         max_frame = self.process_observation(max_frame)
-        max_frame = max_frame.to(self.device) #done processing max frame
+        max_frame = max_frame.to(self.device) #same device as the model uses
 
+        #converting total_reward and done into tensors now. (1,-1) tensor is a single row tensor
+        #why? -> neural networks operate on Tensors, not scalars. Standardising the reward shape etc is useful for batching.
+        #a single tensor may have size (1,1), in a batch these tensors can then have shape (batch_size,1)
+        #total_reward is float
         total_reward = torch.tensor(total_reward).view(1,-1).float() # making sure data is standardasised, can be then used in batches
         total_reward = total_reward.to(self.device) # send this to cpu/gpu for processing
 
@@ -72,7 +80,6 @@ class DQNBreakout(gym.Wrapper):
     # also reduce Complexity of what the network needs to learn on. Shrink it
     # render it grayscale too, and divide by 255(get a range from 0 to 1), kind of like normalising values
     def process_observation(self,observation):
-        #TODO: add content
 
         img = Image.fromarray(observation)#represent an image from this array of observation
         img = img.resize(self.image_shape)

@@ -86,8 +86,6 @@ class Agent:
         self.nb_actions = nb_actions
         self.optimizer = optim.AdamW(model.parameters(), lr=learning_rate)# TODO: go over Adam
 
-        self.epsilon = self.epsilon * self.epsilon_decay
-
         print(f"starting, epsilon={self.epsilon},epsilon_decay={self.epsilon_decay}")
 
     #state is image of our environment
@@ -131,10 +129,11 @@ class Agent:
 
                     #now get into q states
                     qsa_b = self.model(state_b).gather(1,action_b)#TODO: go over the theory of this #q state action for state b action b
+                    next_qsa_b = self.target_model(next_state_b)
                     next_qsa_b = torch.max(next_qsa_b, dim=-1, keepdim=True)[0] #getting the predictions of the target model on what the appropriate Action is for the next state
-                    target_b = reward_b + ~done_b * self.gamma#~negates the value of done. If done is true, there is no next state value
-                    #self.gamma=how much we discount the 
-                    loss = F.nse_loss(qsa_b, target_b) #difference between prediction(qsa_b) and the value based on the actual rewards above
+                    target_b = reward_b + ~done_b * self.gamma * next_qsa_b#~negates the value of done. If done is true, there is no next state value
+                    #self.gamma=how much we discount the next step
+                    loss = F.mse_loss(qsa_b, target_b) #difference between prediction(qsa_b) and the value based on the actual rewards above
                     self.model.zero_grad() #zeroes out the gradients, can go through and update them
                     loss.backward() # backpropagation
                     self.optimizer.step() # optimiser
@@ -191,5 +190,4 @@ class Agent:
                 state,reward,done,info = env.step(action) #make the environment step through the game
                 if done:
                     break
-    
     
