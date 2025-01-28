@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 
@@ -29,7 +30,6 @@ class AtariNet(nn.Module):
 
         # randomly drop out certain number of weights in a network as you pass through it
         # a way to add randomness and stop network getting stuck in the "valleys"(flat solution space) without finding best solution
-        # TODO: Cover dropout in studying
         self.dropout = nn.Dropout(p=0.2) #0.2 chance of dropping out for each layer we apply it to
 
         #fully connected layers now
@@ -91,6 +91,8 @@ class AtariNet(nn.Module):
     def save_model(self, weights_filename="models/latest.pt"):
         #state_dict() -> dictionary of the states/weights in a given model
         # we override nn.Module, so this can be done
+        if not os.path.exists("models"):
+            os.mkdir("models")
         torch.save(self.state_dict(),weights_filename)
     
     def load_model(self, weights_filename="models/latest.pt"):

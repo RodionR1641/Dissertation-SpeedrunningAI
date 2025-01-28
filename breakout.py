@@ -56,7 +56,7 @@ class DQNBreakout(gym.Wrapper):
                 break
         
         #take the frame with most pixels as some images can get blurry and faded, so want better frames basically
-        max_frame = np.max(self.frame_buffer[-2:],axis=0) # grab last 2 frames, take max
+        max_frame = np.max(self.frame_buffer[-2:],axis=0) # grab last 2 frames, take max. No need to process more than 2, 
         #can store this stuff in a buffer
 
         #now process max_frame
@@ -73,32 +73,39 @@ class DQNBreakout(gym.Wrapper):
         done = torch.tensor(done).view(1,-1)
         done = done.to(self.device)
 
+        #why return these?
+        #max_frame: essential to train on, it is basically the next state after taking this action
+        #total_reward: feedback for learning
+        #done: indicate if game finished so episode can end
         return max_frame,total_reward,done,info
     
     #observation is image
-    # take images of various types and sizes -> standardasi
+    # take images of various types and sizes -> standardise
     # also reduce Complexity of what the network needs to learn on. Shrink it
     # render it grayscale too, and divide by 255(get a range from 0 to 1), kind of like normalising values
     def process_observation(self,observation):
 
-        img = Image.fromarray(observation)#represent an image from this array of observation
-        img = img.resize(self.image_shape)
-        img = img.convert("L") #grayscale
-        img = np.array(img)
+        img = Image.fromarray(observation)#represent an image from this array of observation, convert into Image from numpy for manipulation
+        img = img.resize(self.image_shape) #fixed size input image for models. Better for computation and makes size standardised
+        #dont care much about resolution in simple games
+        img = img.convert("L") #grayscale - collapse 3 color channels into 1 for simplicity, color here is not crucial
+        img = np.array(img)# back to numpy for more manipulation
         img = torch.from_numpy(img) #tensors and numpy arrays are similar but tensors more efficient for ML on cpus/gpus for
         #backtracking as they track gradients in gradient descent
         
         #unsqueeze the image, later we pass a batch size number, so we need something in the
         #batch size column and image channel column
+        #note: here the batch size is 1 as when observing an observation, only one can be observed at a time
+        #later we use e.g. 32 batch size, when we sample from memory the batch size is 32 automatically
         img = img.unsqueeze(0)
-        #add 2 dimensions, do twice
+        #dimensions expected of input: Batch size,Channels,height,weight. So we add 1 for both batch size and channel(grayscale)
         img = img.unsqueeze(0)
 
-        #divide by 255, so range is 0-1
+        #divide by 255, so range is 0-1 for normalisation for training
         img = img / 255.0
 
         img = img.to(self.device)
-        return img
+        return img #return processed tensor
 
     #2 functions we use the most -> reset and step
     #reset is to bring it back to setup state
@@ -106,10 +113,10 @@ class DQNBreakout(gym.Wrapper):
     def reset(self):
         self.frame_buffer = []#clear the buffer
 
-        observation = self.env.reset() # _ underscore as we dont care about the second value returned here, only observation
+        observation = self.env.reset()
 
         self.lives = self.env.ale.lives()
-
+        #initial state
         observation = self.process_observation(observation)
 
         return observation

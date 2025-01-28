@@ -16,23 +16,28 @@ import time
 class ReplayMemory:
     
     def __init__(self, capacity, device="cpu"):
-        self.capacity = capacity
+        self.capacity = capacity #memory capacity
         self.memory = []
         self.position = 0
         self.device = device
         self.memory_max_report = 0
 
+    #TODO: can implement a Prioritised Sampling -> sample more important experiences to learn from. Given a probability score
+    # transitions where agent made a lot of errors are important, e.g. high temporal difference. These experiences indicate stuff
+    # the model struggles with, so we can learn faster and better
+
+
     #need to make sure memory doesnt go over a certain size
-    #transition is the data unit at play, tuple of state,action,reward,next state
+    #transition is the data unit at play, tuple of state,action,reward,next state,done. It is an experience of the game at certain time
     def insert(self, transition):
         transition = [item.to("cpu") for item in transition] #this replay memory can get large, can run out of GPU memory quickly
         #so store everything about replay memory in CPU,pushes it into computers main RAM
-        #when we use "sample" method, we can push back to device(e.g. gpu) then
+        #when we use "sample" method, we can push back to device(e.g. gpu)
 
         if len(self.memory) < self.capacity:
             self.memory.append(transition)
         else:
-            #keep everything under capacity(e.g. a million)
+            #keep everything under capacity(e.g. a million). Ensure we keep most recent experiences
             self.memory.remove(self.memory[0]) # like a queue
             self.memory.append(transition)
     
@@ -41,8 +46,11 @@ class ReplayMemory:
         assert self.can_sample(batch_size)
 
         batch = random.sample(self.memory,batch_size) # take a random sample of transitions
-        batch = zip(*batch) 
-        return [torch.cat(items).to(self.device) for items in batch] #pushing it back to device e.g. GPU now
+        batch = zip(*batch) #basically make columns out of rows. We get transitions as tuples of (state,action .....)
+        #so we then make lists of columns of state,action ...
+        return [torch.cat(items).to(self.device) for items in batch] # convert each list of components
+       #into a tensor using torch.cat(), and back to device now
+       #when batching, these will have size 32 etc
 
     # see if we can sample from memory given a batch size, so have enough memory to sample
     def can_sample(self,batch_size):
@@ -52,7 +60,7 @@ class ReplayMemory:
     #why do we need a len object? -> we need to make sure we get the number of items in memory rather than some object output
     #other objects can call the len function of this class, but get what we actually want which is len(self.memory) rather than e.g. len(self)
     def __len__(self):
-        return len(self.memory)
+        return len(self.memory) #get number of transitions stored in buffer
 
 #plays the game
 #covers a lot of training
@@ -66,24 +74,33 @@ class Agent:
     #batch_size
     #learning_rate -> how big of a step we want the agent to take at a time, how quickly we want it to learn. If its too high, jump erradically from solution to solution
     #rather than slowly building to a right solution. Want it to be high enough to pick up changes though, but too high it wont learn well
-    def __init__(self,model,device="cpu",epsilon=1,min_epsilon=0.1,nb_warmup=10000,nb_actions=None,memory_capacity=10000,
+    def __init__(self,model,device="cpu",epsilon=1.0,min_epsilon=0.1,nb_warmup=10000,nb_actions=None,memory_capacity=10000,
                  batch_size=32,learning_rate=0.00025):
         
         self.memory = ReplayMemory(device=device, capacity=memory_capacity)
-        self.model = model
-        #this is our anchor to work towards, self.model will work towards this target_model. Helps to stabilise 
+        self.model = model #policy network to predict actions
+        #this is our anchor to work towards, self.model will work towards this target_model. Helps to stabilise
+        # 
+        # this is a copy of initial self.model, calculate Q values using it
+        # why eval() -> set the model to Evaluation Mode to disable dropout as its used for predictions, not training. 
+        # Makes it deterministic and consistent for validation 
         #TODO: read through how dueling deep q learning works
         self.target_model = copy.deepcopy(model).eval() #when we work with q learning, want a model and another model we can evaluate of off. Part of Dueling deep Q
         
-        self.epsilon = epsilon #this is probability of selecting random action basically
+        self.epsilon = epsilon #this is probability of selecting random action basically. Expoloration vs exploitation
         self.min_epsilon = min_epsilon
-        self.epsilon_decay = 1- (((epsilon - min_epsilon) / nb_warmup) *2) # decay rate, close to the nb_warmup steps count
+        self.epsilon_decay = 1- (((epsilon - min_epsilon) / nb_warmup) *2) # linear decay rate, close to the nb_warmup steps count
         self.batch_size = batch_size
         self.model.to(device)
         self.target_model.to(device)
         
-        self.gamma = 0.99 #how much we discount future rewards TODO:go over this
+        self.gamma = 0.99 #how much we discount future rewards compared to immediate rewards. 0.99 heavily considers long term rewards
+        #if it was 0.5 it would consider short term rewards more. High one helps with games as delayed rewards are more important,but
+        #can lead to instability
         self.nb_actions = nb_actions
+        #this updates the parameters of model during training. Combines adaptive learning rates with weight decay regularisation for 
+        #better generalisation
+        #TODO: go over adam
         self.optimizer = optim.AdamW(model.parameters(), lr=learning_rate)# TODO: go over Adam
 
         print(f"starting, epsilon={self.epsilon},epsilon_decay={self.epsilon_decay}")
@@ -177,7 +194,8 @@ class Agent:
 
     #run something on the machine, and see how we perform
     def test(self, env):
-
+        
+        #just see how game performs for 3 trials
         for epoch in range(1,3):
             state = env.reset()
 
