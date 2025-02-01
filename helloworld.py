@@ -32,8 +32,12 @@ if torch.cuda.is_available():
 else:
 	print("cuda not available")
 
-logging.info(f"device is {device}")
+#logging.info(f"device is {device}")
 
+print("PyTorch Version:", torch.__version__)
+print("CUDA Available:", torch.cuda.is_available())
+print("CUDA Version:", torch.version.cuda)
+print("Number of GPUs:", torch.cuda.device_count())
 
 # Example training loop logging
 for i in range(1, 10):

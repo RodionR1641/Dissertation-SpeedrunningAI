@@ -38,4 +38,5 @@ module load nvidia/cudnn-v8.1.1.33-forcuda11.0-to-11.2
 
 echo "Allocated GPUs: $SLURM_GPUS_ON_NODE"
 
-torchrun --master_port=$MASTER_PORT helloworld.py --data-path /db/psyrr4/breakout/ > $LOG_FILE 2>&1
+#torchrun --master_port=$MASTER_PORT helloworld.py --data-path /db/psyrr4/breakout/ > $LOG_FILE 2>&1
+python3 helloworld.py --master_port=$MASTER_PORT --data-path /db/psyrr4/breakout/ > $LOG_FILE 2>&1
