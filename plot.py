@@ -4,6 +4,6 @@
 # can use TensorBoard setup, or use matplotlib
 class LivePlot():
 
-    def update_plot(self):
+    def update_plot(self,stats):
         pass
 

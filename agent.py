@@ -6,6 +6,40 @@ import torch.nn.functional as F
 from plot import LivePlot
 import numpy as np
 import time
+import os
+import logging
+import datetime
+
+log_dir = "/cs/home/psyrr4/Code/Code/logs"
+os.makedirs(log_dir, exist_ok=True)
+
+# Define log file name (per process)
+rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+log_file = os.path.join(log_dir, f"experiment_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_rank{rank}.log")
+
+# Configure logging
+logging.basicConfig(
+    filename=log_file,
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
+print("starting logging")
+logging.info(f"Process {rank} started training on GPUs")
+
+if torch.cuda.is_available():
+    try:
+        logging.info(torch.cuda.current_device())
+        logging.info("GPU Name: " + torch.cuda.get_device_name(0))
+        logging.info("PyTorch Version: " + torch.__version__)
+        logging.info("CUDA Available: " + str(torch.cuda.is_available()))
+        logging.info("CUDA Version: " + str(torch.version.cuda))
+        logging.info("Number of GPUs: " + str(torch.cuda.device_count()))
+    except RuntimeError as e:
+        logging.info(f"{e}")
+else:
+	logging.info("cuda not available")
+
 #agent's memory
 # The way deep q learning works: 
 # build a buffer over time of all of the state-action pairs it played
@@ -103,7 +137,7 @@ class Agent:
         #TODO: go over adam
         self.optimizer = optim.AdamW(model.parameters(), lr=learning_rate)# TODO: go over Adam
 
-        print(f"starting, epsilon={self.epsilon},epsilon_decay={self.epsilon_decay}")
+        logging.info(f"starting, epsilon={self.epsilon},epsilon_decay={self.epsilon_decay}")
 
     #state is image of our environment
     def get_action(self,state):
@@ -166,7 +200,6 @@ class Agent:
             #gatherin stats
             if epoch % 10 == 0:
                 self.model.save_model() #save model every 10th epoch
-                print(" ")
 
                 average_returns = np.mean(stats["Returns"][-100:]) #average of the last 100 returns
 
@@ -176,10 +209,10 @@ class Agent:
                 stats["EpsilonCheckpoint"].append(self.epsilon) #see where the epsilon was at. Do we see higher returns with high epsilon, or only when it dropped etc
 
                 if(len(stats["Returns"]) > 100):
-                    print(f"Epoch: {epoch} - Average return: {np.mean(stats['Returns'][-100:])}  - Epsilon: {self.epsilon} ")
+                    logging.info(f"Epoch: {epoch} - Average return: {np.mean(stats['Returns'][-100:])}  - Epsilon: {self.epsilon} ")
                 else:
                     #for the first 100 iterations, just return the episode return,otherwise return the average like above
-                    print(f"Epoch: {epoch} - Episode return: {np.mean(stats['Returns'][-1:])}  - Epsilon: {self.epsilon} ")
+                    logging.info(f"Epoch: {epoch} - Episode return: {np.mean(stats['Returns'][-1:])}  - Epsilon: {self.epsilon} ")
 
             if epoch % 100 == 0:
                 self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
