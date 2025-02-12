@@ -134,20 +134,19 @@ class Agent:
         self.nb_actions = nb_actions
         #this updates the parameters of model during training. Combines adaptive learning rates with weight decay regularisation for 
         #better generalisation
-        #TODO: go over adam
         self.optimizer = optim.AdamW(model.parameters(), lr=learning_rate)# TODO: go over Adam
 
         logging.info(f"starting, epsilon={self.epsilon},epsilon_decay={self.epsilon_decay}")
 
     #state is image of our environment
-    def get_action(self,state):
+    def get_action(self,state,test=False):
 
-        if torch.rand(1) < self.epsilon: #if a random number between 0 and 1 is smaller than epsilon, do random move
+        #only use random action if its training
+        if (torch.rand(1) < self.epsilon) and not test: #if a random number between 0 and 1 is smaller than epsilon, do random move
             #randint returns a tensor
-            return torch.randint(self.nb_actions, (1,1)) #random action. TODO: go over(1,1) for tensors
+            return torch.randint(self.nb_actions, (1,1)) #random action. adding 1,1 for tensors is for e.g. batch size etc
         else:
-            #TODO: go over this code
-            action_value = self.model(state).detach() #pass the action to the model ///
+            action_value = self.model(state).detach() #get all the action probabilities
             # model returns a list of probabilities e.g. [0.11,0.22,0.45,0.3]
             return torch.argmax(action_value,dim=1,keepdim=True) # argmax grabs highest value. This will return the action of index 2
 
@@ -172,14 +171,13 @@ class Agent:
 
                 #actual training part
                 #can take out of memory only if sufficient size
-                #TODO: go over each line and understand the code and theory
                 if self.memory.can_sample(self.batch_size):
                     #all batches data, series of batches of all of the states,actions,rewards etc
                     state_b,action_b,reward_b,done_b,next_state_b = self.memory.sample(self.batch_size) #series of batches, unpack them
                     #can pass a batch of e.g. size32, speeds up training to do it in batches
 
                     #now get into q states
-                    qsa_b = self.model(state_b).gather(1,action_b)#TODO: go over the theory of this #q state action for state b action b
+                    qsa_b = self.model(state_b).gather(1,action_b)#gather the action chosen in state_b by our network
                     next_qsa_b = self.target_model(next_state_b)
                     next_qsa_b = torch.max(next_qsa_b, dim=-1, keepdim=True)[0] #getting the predictions of the target model on what the appropriate Action is for the next state
                     target_b = reward_b + ~done_b * self.gamma * next_qsa_b#~negates the value of done. If done is true, there is no next state value
@@ -237,7 +235,7 @@ class Agent:
             #1000 steps
             for _ in range(1000):
                 time.sleep(0.01) #by default it runs very quickly, so slow down
-                action = self.get_action(state)
+                action = self.get_action(state,test=True)
                 state,reward,done,info = env.step(action) #make the environment step through the game
                 if done:
                     break
