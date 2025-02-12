@@ -95,10 +95,11 @@ class AtariNet(nn.Module):
             os.mkdir("models")
         torch.save(self.state_dict(),weights_filename)
     
-    def load_model(self, weights_filename="models/latest.pt"):
+    def load_model(self, weights_filename="models/latest.pt",device="cpu"):
         try:
-            self.load_state_dict(torch.load(weights_filename))
-            print(f"Loaded weights filename: {weights_filename}")
-        except:
+            self.load_state_dict(torch.load(weights_filename,map_location=device))
+            print(f"Loaded weights filename: {weights_filename}")            
+        except Exception as e:
             print(f"No weights filename: {weights_filename}")
+            print(f"Error: {e}")
     

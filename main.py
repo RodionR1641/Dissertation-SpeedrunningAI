@@ -19,7 +19,7 @@ user_input = False
 model = AtariNet(nb_actions=4) #4 actions for agent can do in this game
 model.to(device) # move torch module/network to a specific device
 
-model.load_model()
+model.load_model(device=device)
 
 if(user_input):
     done = False
