@@ -153,7 +153,7 @@ class Agent:
     #epochs = how many iterations to train for
     def train(self,env, epochs):
         #see how the model is doing over time
-        stats = {"Returns": [], "AvgReturns": [], "EpsilonCheckpoint": []} #store as dictinary of lists
+        stats = {"Returns": [], "AvgReturns": [], "Epsilon": []} #store as dictinary of lists
 
         plotter = LivePlot()
 
@@ -204,7 +204,7 @@ class Agent:
                 #graph can turn too big if we try to plot everything through. Only update a graph data point for every 10 epochs
 
                 stats["AvgReturns"].append(average_returns)
-                stats["EpsilonCheckpoint"].append(self.epsilon) #see where the epsilon was at. Do we see higher returns with high epsilon, or only when it dropped etc
+                stats["Epsilon"].append(self.epsilon) #see where the epsilon was at. Do we see higher returns with high epsilon, or only when it dropped etc
 
                 if(len(stats["Returns"]) > 100):
                     logging.info(f"Epoch: {epoch} - Average return: {np.mean(stats['Returns'][-100:])}  - Epsilon: {self.epsilon} ")
