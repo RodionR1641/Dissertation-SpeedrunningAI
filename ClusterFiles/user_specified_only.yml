@@ -1,0 +1,15 @@
+name: gym_train
+channels:
+  - https://repo.anaconda.com/pkgs/main
+  - https://repo.anaconda.com/pkgs/r
+dependencies:
+  - python==3.8.15
+  - pytorch-cuda==11.6
+  - gym=0.21
+  - numpy
+  - opencv
+  - pytorch==1.12.1
+  - torchaudio==0.12.1
+  - torchvision==0.13.1
+  - matplotlib
+prefix: /cs/home/psyrr4/miniconda3/envs/gym_train
