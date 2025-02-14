@@ -44,7 +44,7 @@ class LivePlot():
 
         current_date = datetime.now().strftime("%Y-%m-%d")
 
-        self.figure.savefig(f"Code/Breakout/plots/plot_{current_date}.png")
+        self.figure.savefig(f"plots/plot_{current_date}.png")
     
     def generate_plot(self,log_file):
         #doing it for every 100 here too, have to go through every 10th line

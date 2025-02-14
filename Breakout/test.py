@@ -22,7 +22,7 @@ model = AtariNet(nb_actions=4)
 model.to(device) # move torch module/network to a specific device
 
 
-model.load_model("Code/Breakout/models/model_iter_8000.pt",device=device)
+model.load_model("models/model_iter_8000.pt",device=device)
 
 if(user_input):
     done = False

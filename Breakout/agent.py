@@ -10,7 +10,7 @@ import os
 import logging
 import datetime
 
-log_dir = "/cs/home/psyrr4/Code/Code/logs"
+log_dir = "/cs/home/psyrr4/Code/Code/Breakout/logs"
 os.makedirs(log_dir, exist_ok=True)
 
 # Define log file name (per process)
