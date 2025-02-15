@@ -5,13 +5,13 @@ channels:
   - https://repo.anaconda.com/pkgs/msys2
   - conda-forge
 dependencies:
+  - gym=0.21
+  - python==3.8.15
+  - matplotlib
   - opencv
   - torchvision==0.13.1
-  - gym=0.21
-  - pytorch==1.12.1
-  - numpy
-  - torchaudio==0.12.1
-  - matplotlib
-  - python==3.8.15
   - pytorch-cuda==11.6
+  - numpy
+  - pytorch==1.12.1
+  - torchaudio==0.12.1
 prefix: C:\Users\rasul\miniconda3\envs\gym_train
