@@ -243,4 +243,4 @@ dependencies:
       - pip==20.2.3
       - tqdm==4.67.1
       - zipp==3.20.2
-prefix: /cs/home/psyrr4/miniconda3/envs/gym_train
+#prefix: /cs/home/psyrr4/miniconda3/envs/gym_train

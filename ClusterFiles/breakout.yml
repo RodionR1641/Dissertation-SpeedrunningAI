@@ -1,9 +1,9 @@
 name: gym_train
 channels:
+  - conda-forge
   - pytorch
   - nvidia
   - defaults
-  - conda-forge
   - https://repo.anaconda.com/pkgs/main
   - https://repo.anaconda.com/pkgs/r
 dependencies:
