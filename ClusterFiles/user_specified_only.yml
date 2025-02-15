@@ -1,5 +1,9 @@
 name: gym_train
 channels:
+  - conda-forge
+  - pytorch
+  - nvidia
+  - defaults
   - https://repo.anaconda.com/pkgs/main
   - https://repo.anaconda.com/pkgs/r
 dependencies:
@@ -12,4 +16,4 @@ dependencies:
   - torchaudio==0.12.1
   - torchvision==0.13.1
   - matplotlib
-prefix: /cs/home/psyrr4/miniconda3/envs/gym_train
+#prefix: /cs/home/psyrr4/miniconda3/envs/gym_train
