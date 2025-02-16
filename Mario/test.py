@@ -3,7 +3,7 @@ from PIL import Image
 import numpy as np
 import gym
 import os
-from breakout import *
+from Mario.mario import *
 import keyboard
 from model import AtariNet
 from agent import Agent
@@ -12,7 +12,7 @@ os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-environment = DQNBreakout(device=device,render_mode="human")
+environment = DQN_Mario(device=device,render_mode="human")
 
 user_input = False
 

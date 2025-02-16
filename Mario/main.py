@@ -1,8 +1,8 @@
 import torch
 import os
-from breakout import *
+from Mario.mario import *
 import keyboard
-from model import AtariNet
+from model import MarioNet
 from agent import Agent
 
 
@@ -14,8 +14,7 @@ environment = DQN_Mario(device=device)
 
 user_input = False
 
-model = MarioNet(nb_actions=5) #4 actions for agent can do in this game
-model.to(device) # move torch module/network to a specific device
+model = MarioNet(nb_actions=5,device=device) #5 actions for agent can do in this game
 
 model.load_model(device=device)
 
