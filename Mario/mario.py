@@ -14,9 +14,9 @@ from gym.wrappers import GrayScaleObservation, ResizeObservation, FrameStack
 class DQN_Mario(gym.Wrapper):
     #rgb_array gives pixel info of game for us to work with
     # human mode actually allows to see
-    def __init__(self, render_mode='rgb_array',repeat=4,device='cpu'):
-        env = gym_super_mario_bros.make("SuperMarioBros-1-1-v0",render_mode=render_mode)
-        env = JoypadSpace(env, self.RIGHT_ONLY)
+    def __init__(self,repeat=4,device='cpu'):
+        env = gym_super_mario_bros.make("SuperMarioBros-1-1-v0")
+        env = JoypadSpace(env, RIGHT_ONLY)
 
         #apply wrappers for preprocessing of images
         env = ResizeObservation(env,shape=84)
@@ -25,6 +25,7 @@ class DQN_Mario(gym.Wrapper):
 
         super(DQN_Mario,self).__init__(env)#parent class initialiser, gym wrapper
 
+        self.action_num = len(RIGHT_ONLY)
         self.env = env
         self.repeat = repeat
         self.lives = 3
