@@ -71,4 +71,4 @@ class LivePlot():
         self.update_plot(stats)
 
 plot = LivePlot()
-plot.generate_plot("logs/experiment_2025-02-02_13-06-53_rank0.log")
+#plot.generate_plot("logs/experiment_2025-02-02_13-06-53_rank0.log")
