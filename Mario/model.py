@@ -8,17 +8,15 @@ class MarioNet(nn.Module):
     #setup all the methods in init and call in forward method
 
     #pass number of actions network can take for flexibility
-    def __init__(self,nb_actions=4):
-        super(MarioNet,self).__init__()#nn.Module init method, cover necessary class initialisation
+    def __init__(self,input_shape,device="cpu",nb_actions=5):
+        super(MarioNet,self).__init__()
 
         self.relu = nn.ReLU()
 
         #have 3 conv layers
-        # CNN networks courses cover this btw
-        # larger stride -> smaller output
         
-        #these parameters are from the paper in the Joplin slide where such architecture was used
-        self.conv1 = nn.Conv2d(1,32,kernel_size=(8,8),stride=(4,4)) #arguments -> number of channels(1 as grayscale),number of channels out,kernel size, stride
+        self.conv1 = nn.Conv2d(input_shape[0],32,kernel_size=(8,8),stride=(4,4))
+        #arguments -> number of channels(1 for grayscale),number of channels out,kernel size, stride
         #each layer shrinks image, pull more info out of the image and store this info in kernel layers(weights)
         #since conv1 gives 32 channels out(filters we use), the next one has to take 32 in
         self.conv2 = nn.Conv2d(32,64,kernel_size=(4,4),stride=(2,2))
@@ -34,20 +32,22 @@ class MarioNet(nn.Module):
 
         #fully connected layers now
         
-        #now network interacts with rest of code
+        flat_size = self.get_flat_size(input_shape)
+        print("flattened size = "+str(flat_size))
         
         #value of the image state
-        #3136 = size of value when we flatten
-        self.action_value1 = nn.Linear(3136,1024) # 1024 neurons we use in fully connected layer
+        self.action_value1 = nn.Linear(flat_size,1024) # 1024 neurons we use in fully connected layer
         #want more of these hidden layers
         self.action_value2 = nn.Linear(1024,1024)
         self.action_value3 = nn.Linear(1024,nb_actions) # nb_actions output -> probability of actions selected
 
         #now do similar for State value
-        self.state_value1 = nn.Linear(3136,1024)
+        self.state_value1 = nn.Linear(flat_size,1024)
         self.state_value2 = nn.Linear(1024,1024)
         self.state_value3 = nn.Linear(1024,1) # single value output, tells us if given state is valuable to the agent
 
+        self.device = device
+        self.to(self.device)
     #function that gets called when network is being called
     #x is input to the network
     def forward(self,x):
@@ -86,6 +86,16 @@ class MarioNet(nn.Module):
 
         return output
     
+    #pass dummy input through conv layers to get flatten size dynamically
+    def get_flat_size(self,input_shape):
+
+        with torch.no_grad():#no gradient computation, just a dummy pass
+            dummy_input = torch.zeros(1,*input_shape)
+            x = self.conv1(dummy_input)
+            x = self.conv2(x)
+            x = self.conv3(x)
+            return self.flatten(x).shape[1] #get number of features after flattening
+
     #these models take a while to train, want to save it and reload on start
     #use pt format
     def save_model(self, weights_filename="models/latest.pt"):
