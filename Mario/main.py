@@ -37,7 +37,7 @@ else:
                   nb_actions=num_actions,
                   learning_rate=0.00001, #having it lower than 0.00001 is needed to get really good, but for starting out its
                   #fine to keep it here. as agent gets better, can decrease it with code
-                  memory_capacity=100_000,
+                  memory_capacity=10_000,
                   batch_size=32)
 
     agent.train(env=environment, epochs=200000) #pass the DQNBreakout environment for agent to train on

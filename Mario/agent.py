@@ -98,13 +98,13 @@ class Agent:
         #only use random action if its training
         if (torch.rand(1) < self.epsilon) and not test: #if a random number between 0 and 1 is smaller than epsilon, do random move
             #randint returns a tensor
-            return torch.randint(self.nb_actions, (1,1)) #random action. adding 1,1 for tensors is for e.g. batch size etc
+            return np.random.randint(self.nb_actions) #random action. adding 1,1 for tensors is for e.g. batch size etc
         else:
 
 
             state = torch.tensor(np.array(state), dtype=torch.float32) \
                         .unsqueeze(0) \
-                        .to(self.online_network.device)
+                        .to(self.model.device)
 
             return self.model(state).argmax().item()
 
@@ -149,11 +149,11 @@ class Agent:
                     keys = ("state","action","reward","next_state","done")
 
                     states, actions, rewards, next_states, dones = [samples[key] for key in keys]
-                    qsa_b = self.online_network(states)  # Shape: (batch_size, n_actions) as network estimates q value for all actions
+                    qsa_b = self.model(states)  # Shape: (batch_size, n_actions) as network estimates q value for all actions
                     qsa_b = qsa_b[np.arange(self.batch_size), actions.squeeze()]
 
                     # Compute target Q-values from the target network
-                    next_qsa_b = self.target_network(next_states).max(dim=1)[0] 
+                    next_qsa_b = self.target_model(next_states).max(dim=1)[0] 
                     target_b = rewards + self.gamma * next_qsa_b * (1 - dones.float())
 
                     loss = self.loss(qsa_b,target_b)
@@ -162,11 +162,13 @@ class Agent:
                     self.optimizer.step()
 
                 state = next_state #did the training, now move on with next state
-                ep_return += reward.item()
+                ep_return += reward
 
             stats["Returns"].append(ep_return)
 
             self.epsilon = max(self.min_epsilon, self.epsilon * self.epsilon_decay)
+
+            print("Total reward = "+str(ep_return))
 
             #gatherin stats
             if epoch % 10 == 0:
@@ -212,4 +214,5 @@ class Agent:
                 state,reward,done,info = env.step(action) #make the environment step through the game
                 if done:
                     break
+                env.render()
     
