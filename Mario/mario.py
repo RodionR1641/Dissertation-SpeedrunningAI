@@ -40,17 +40,20 @@ class DQN_Mario(gym.Wrapper):
             state,reward,done, info = self.env.step(action) # the reward function e.g. for breakout, is defined within that 
             #environment. In breakout, breaking a brick gives a reward
             total_reward += reward 
-            current_lives = info['life']
 
+            #already handles losing life by -15 reward
+            """
             if current_lives < self.lives:
                 #can experiment with this number
                 total_reward = total_reward - 1 # can be any number. We want to have losing live to have same impact though. 
                 self.lives = current_lives
+            """
 
             #print(f"lives: {self.lives}, Total reward: {total_reward}")
             if done:
                 break
         
+        # since the same action is repeated for x steps, can delete by self.repeat to "normalise" it
         #converting total_reward and done into tensors now. (1,-1) tensor is a single row tensor
         #why? -> neural networks operate on Tensors, not scalars. Standardising the reward shape etc is useful for batching.
         #a single tensor may have size (1,1), in a batch these tensors can then have shape (batch_size,1)

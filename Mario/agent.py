@@ -56,7 +56,7 @@ class Agent:
     #learning_rate -> how big of a step we want the agent to take at a time, how quickly we want it to learn. If its too high, jump erradically from solution to solution
     #rather than slowly building to a right solution. Want it to be high enough to pick up changes though, but too high it wont learn well
     def __init__(self,input_dims,device="cpu",epsilon=1.0,min_epsilon=0.1,nb_warmup=20000,nb_actions=5,memory_capacity=100_000,
-                 batch_size=32,learning_rate=0.00025):
+                 batch_size=32,learning_rate=1e-4):
         
         
         self.model = MarioNet(input_dims,nb_actions=nb_actions,device=device) #5 actions for agent can do in this game
@@ -149,11 +149,19 @@ class Agent:
                     keys = ("state","action","reward","next_state","done")
 
                     states, actions, rewards, next_states, dones = [samples[key] for key in keys]
-                    qsa_b = self.model(states)  # Shape: (batch_size, n_actions) as network estimates q value for all actions
-                    qsa_b = qsa_b[np.arange(self.batch_size), actions.squeeze()]
+                    qsa_b = self.model(states)  # Shape: (batch_size, n_actions) as network estimates q value for all actions. so have rows of q values for each action
+                    qsa_b = qsa_b[np.arange(self.batch_size), actions.squeeze()] #action contains the actual actions taken, remove extra batch dimension via squeeze
+                    # then generate an array of batch indices. So select q value of each action taken
 
-                    # Compute target Q-values from the target network
-                    next_qsa_b = self.target_model(next_states).max(dim=1)[0] 
+                    # DDQN - Compute target Q-values from the online network, then use the 
+                    # target network to evaluate
+                    best_next_actions = self.model(next_states).argmax(dim=1) #get the best action using max of dim=1(which are the actions). argmax return indices
+                    #this feeds the next_states into target_model and then selects its own values of the actions that online model chose
+                    next_qsa_b = self.target_model(next_states)[np.arrange(self.batch_size),best_next_actions]
+                    
+                    
+                    # dqn = r + gamma * max Q(s,a)
+                    # ddqn = r + gamma * online_network(s',argmax target_network_Q(s',a'))
                     target_b = rewards + self.gamma * next_qsa_b * (1 - dones.float())
 
                     loss = self.loss(qsa_b,target_b)
