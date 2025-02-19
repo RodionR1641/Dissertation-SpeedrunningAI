@@ -10,7 +10,9 @@ import os
 import logging
 import datetime
 from tensordict import TensorDict
-from torchrl.data import TensorDictReplayBuffer, LazyMemmapStorage
+from torchrl.data.replay_buffers import TensorDictReplayBuffer
+from torchrl.data.replay_buffers.storages import LazyMemmapStorage
+from torchrl.data.replay_buffers.samplers import PrioritizedSampler
 from model import MarioNet
 
 log_dir = "/cs/home/psyrr4/Code/Code/logs"
@@ -86,6 +88,8 @@ class Agent:
         #Combines adaptive learning rates with weight decay regularisation for better generalisation
         self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
         self.loss = torch.nn.MSELoss()
+        
+        #sampler = PrioritizedSampler(max_capacity=memory_capacity, priority_key="td_error")
 
         storage = LazyMemmapStorage(memory_capacity)
         self.replay_buffer = TensorDictReplayBuffer(storage=storage)
@@ -113,13 +117,26 @@ class Agent:
             return torch.argmax(action_value,dim=1,keepdim=True) # argmax grabs highest value. This will return the action of index 2
 
     def store_memory(self,state,action,reward,next_state,done):
+        """
+        if td_error is None:
+            #give a high td_err as at start probably bad, also making it uniform until fill up buffer
+            td_error = torch.tensor(1.0, dtype=torch.float32)
+        """
+
         self.replay_buffer.add(TensorDict({
                                             "state": torch.tensor(np.array(state), dtype=torch.float32), 
                                             "action": torch.tensor(action),
                                             "reward": torch.tensor(reward), 
                                             "next_state": torch.tensor(np.array(next_state), dtype=torch.float32), 
                                             "done": torch.tensor(done)
+                                            #"td_error":torch.tensor(td_error,dtype=torch.float32)
                                           }, batch_size=[]))
+
+    #adjust the priorities in the buffer
+    def update_priorities(self,indices, td_errors):
+        priorities = (td_errors + 1e-5).pow(self.alpha)  # Ensure nonzero priority with epsilon, the alpha control how much priorities matter
+        # if alpha 0 -> all experiences sampled uniformly, if alpha = 1 -> experiences sample fully by priority
+        self.replay_buffer.update_priority(indices, priorities)
 
     #epochs = how many iterations to train for
     def train(self,env, epochs):
@@ -142,13 +159,13 @@ class Agent:
 
                 #actual training part
                 #can take out of memory only if sufficient size
-                if len(self.replay_buffer) >= self.batch_size:
+                if len(self.replay_buffer) >= (self.batch_size * 10):
                     
                     samples = self.replay_buffer.sample(self.batch_size).to(self.model.device)
 
-                    keys = ("state","action","reward","next_state","done")
+                    keys = ("state","action","reward","next_state","done","td_error")
 
-                    states, actions, rewards, next_states, dones = [samples[key] for key in keys]
+                    states, actions, rewards, next_states, dones, td_errors = [samples[key] for key in keys]
                     qsa_b = self.model(states)  # Shape: (batch_size, n_actions) as network estimates q value for all actions. so have rows of q values for each action
                     qsa_b = qsa_b[np.arange(self.batch_size), actions.squeeze()] #action contains the actual actions taken, remove extra batch dimension via squeeze
                     # then generate an array of batch indices. So select q value of each action taken
@@ -159,10 +176,13 @@ class Agent:
                     #this feeds the next_states into target_model and then selects its own values of the actions that online model chose
                     next_qsa_b = self.target_model(next_states)[np.arrange(self.batch_size),best_next_actions]
                     
-                    
                     # dqn = r + gamma * max Q(s,a)
                     # ddqn = r + gamma * online_network(s',argmax target_network_Q(s',a'))
                     target_b = rewards + self.gamma * next_qsa_b * (1 - dones.float())
+                    
+                    #indices = samples["index"]
+                    #td_errors = torch.abs(qsa_b-target_b).detach()
+                    #self.update_priorities(indices,td_errors)
 
                     loss = self.loss(qsa_b,target_b)
                     self.model.zero_grad()
