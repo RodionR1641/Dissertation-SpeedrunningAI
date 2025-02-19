@@ -119,11 +119,11 @@ class Agent:
         """
 
         self.replay_buffer.add(TensorDict({
-                                            "state": torch.tensor(np.array(state), dtype=torch.float32).cpu(), 
-                                            "action": torch.tensor(action).cpu(),
-                                            "reward": torch.tensor(reward).cpu(), 
-                                            "next_state": torch.tensor(np.array(next_state), dtype=torch.float32).cpu(), 
-                                            "done": torch.tensor(done).cpu()
+                                            "state": torch.tensor(np.array(state), dtype=torch.float32,device="cpu"), 
+                                            "action": torch.tensor(action,device="cpu"),
+                                            "reward": torch.tensor(reward,device="cpu"), 
+                                            "next_state": torch.tensor(np.array(next_state), dtype=torch.float32,device="cpu"), 
+                                            "done": torch.tensor(done,device="cpu")
                                             #"td_error":torch.tensor(td_error,dtype=torch.float32)
                                           }, batch_size=[]))
 
