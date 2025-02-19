@@ -12,7 +12,6 @@ import datetime
 from tensordict import TensorDict
 from torchrl.data.replay_buffers import TensorDictReplayBuffer
 from torchrl.data.replay_buffers.storages import LazyMemmapStorage
-from torchrl.data.replay_buffers.samplers import PrioritizedSampler
 from model import MarioNet
 
 log_dir = "/cs/home/psyrr4/Code/Code/logs"
@@ -102,19 +101,15 @@ class Agent:
         #only use random action if its training
         if (torch.rand(1) < self.epsilon) and not test: #if a random number between 0 and 1 is smaller than epsilon, do random move
             #randint returns a tensor
-            return np.random.randint(self.nb_actions) #random action. adding 1,1 for tensors is for e.g. batch size etc
+            return np.random.randint(self.nb_actions) #random action
         else:
 
-
+            #convert state into np_array for calculations, then make a tensor, then unsqueese to add batch dimension
             state = torch.tensor(np.array(state), dtype=torch.float32) \
                         .unsqueeze(0) \
                         .to(self.model.device)
 
             return self.model(state).argmax().item()
-
-            action_value = self.model(state).detach() #get all the action probabilities
-            # model returns a list of probabilities e.g. [0.11,0.22,0.45,0.3]
-            return torch.argmax(action_value,dim=1,keepdim=True) # argmax grabs highest value. This will return the action of index 2
 
     def store_memory(self,state,action,reward,next_state,done):
         """
@@ -178,7 +173,8 @@ class Agent:
                     
                     # dqn = r + gamma * max Q(s,a)
                     # ddqn = r + gamma * online_network(s',argmax target_network_Q(s',a'))
-                    target_b = rewards + self.gamma * next_qsa_b * (1 - dones.float())
+                    #detach -> important as we dont want to back propagate on target network
+                    target_b = rewards + self.gamma * next_qsa_b * (1 - dones.float()).detach() #1-dones.float() -> stop propagating when 
                     
                     #indices = samples["index"]
                     #td_errors = torch.abs(qsa_b-target_b).detach()
@@ -216,6 +212,7 @@ class Agent:
                     logging.info(f"Epoch: {epoch} - Episode return: {np.mean(stats['Returns'][-1:])}  - Epsilon: {self.epsilon} ")
 
             if epoch % self.sync_network_rate == 0 and epoch > 0:
+                #TODO: consider tau here instead rather than quick changes
                 self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
                 plotter.update_plot(stats)
             
