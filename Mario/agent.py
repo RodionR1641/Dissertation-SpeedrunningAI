@@ -119,11 +119,11 @@ class Agent:
         """
 
         self.replay_buffer.add(TensorDict({
-                                            "state": torch.tensor(np.array(state), dtype=torch.float32), 
-                                            "action": torch.tensor(action),
-                                            "reward": torch.tensor(reward), 
-                                            "next_state": torch.tensor(np.array(next_state), dtype=torch.float32), 
-                                            "done": torch.tensor(done)
+                                            "state": torch.tensor(np.array(state), dtype=torch.float32).cpu(), 
+                                            "action": torch.tensor(action).cpu(),
+                                            "reward": torch.tensor(reward).cpu(), 
+                                            "next_state": torch.tensor(np.array(next_state), dtype=torch.float32).cpu(), 
+                                            "done": torch.tensor(done).cpu()
                                             #"td_error":torch.tensor(td_error,dtype=torch.float32)
                                           }, batch_size=[]))
 
@@ -158,9 +158,9 @@ class Agent:
                     
                     samples = self.replay_buffer.sample(self.batch_size).to(self.model.device)
 
-                    keys = ("state","action","reward","next_state","done","td_error")
+                    keys = ("state","action","reward","next_state","done")
 
-                    states, actions, rewards, next_states, dones, td_errors = [samples[key] for key in keys]
+                    states, actions, rewards, next_states, dones = [samples[key] for key in keys]
                     qsa_b = self.model(states)  # Shape: (batch_size, n_actions) as network estimates q value for all actions. so have rows of q values for each action
                     qsa_b = qsa_b[np.arange(self.batch_size), actions.squeeze()] #action contains the actual actions taken, remove extra batch dimension via squeeze
                     # then generate an array of batch indices. So select q value of each action taken
@@ -169,7 +169,7 @@ class Agent:
                     # target network to evaluate
                     best_next_actions = self.model(next_states).argmax(dim=1) #get the best action using max of dim=1(which are the actions). argmax return indices
                     #this feeds the next_states into target_model and then selects its own values of the actions that online model chose
-                    next_qsa_b = self.target_model(next_states)[np.arrange(self.batch_size),best_next_actions]
+                    next_qsa_b = self.target_model(next_states)[np.arange(self.batch_size),best_next_actions]
                     
                     # dqn = r + gamma * max Q(s,a)
                     # ddqn = r + gamma * online_network(s',argmax target_network_Q(s',a'))
