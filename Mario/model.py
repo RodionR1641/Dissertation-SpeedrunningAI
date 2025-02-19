@@ -53,6 +53,7 @@ class MarioNet(nn.Module):
         #passing through the layers, starting with the raw image data
 
         x = torch.Tensor(x) #casting, make data in tensor format(the image)
+        x.to(self.device)
         #relu used after conv layers(their output). 
         x = self.relu(self.conv1(x)) # relu takes value, anything under 0 gets nullified. Add non linearity
         x = self.relu(self.conv2(x))
@@ -63,18 +64,21 @@ class MarioNet(nn.Module):
         # the state_value1,state_value2 etc actually learns the necessary parameters
         # basically get output from these layers, 
         state_value = self.relu(self.state_value1(x))
-        state_value = self.dropout(state_value)
+        
+        #removing dropout - Not that useful for RL anyway, Rl usually has no problem with overfitting but stability and convergence
+        #state_value = self.dropout(state_value)
         state_value = self.relu(self.state_value2(state_value))
-        state_value = self.dropout(state_value)
-        state_value = self.relu(self.state_value3(state_value))
+        #state_value = self.dropout(state_value)
+        state_value = self.state_value3(state_value) #no relu
         #no dropout in the end. It is used to avoid overfitting, but dont want it in final prediction. If we get e.g one/4 value
         #, dont want it to be dropped 0.2 percent of the time. not useful for learning
 
         action_value = self.relu(self.action_value1(x))
-        action_value = self.dropout(action_value)
+        #action_value = self.dropout(action_value)
         action_value = self.relu(self.action_value2(action_value))
-        action_value = self.dropout(action_value)
-        action_value = self.relu(self.action_value3(action_value))
+        #action_value = self.dropout(action_value)
+        action_value = self.action_value3(action_value) #dont have relu on last layer as dont want to limit
+        #to only negative actions
         
         #action_value is array of values, we will be selecting the highest of them
         # so substract action_value mean from action_value array so we get a representation of the value of the choices 
@@ -82,7 +86,7 @@ class MarioNet(nn.Module):
         # if we did just state_value + action_value -> we overrepresent the state_value as we add it to the total action_values
         # and not what differentiates the action_values
         output = state_value + (action_value - action_value.mean())
-
+        #output = state_value + (action_value - action_value.mean(dim=1, keepdim=True))
         return output
     
     #pass dummy input through conv layers to get flatten size dynamically
