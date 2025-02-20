@@ -136,7 +136,7 @@ class Agent:
     #epochs = how many iterations to train for
     def train(self,env, epochs):
         #see how the model is doing over time
-        stats = {"Returns": [], "AvgReturns": [], "Epsilon": []} #store as dictinary of lists
+        stats = {"Returns":[],"Loss": [],"AverageLoss": [], "Epsilon": []} #store as dictinary of lists
 
         plotter = LivePlot()
 
@@ -144,6 +144,7 @@ class Agent:
             state = env.reset() #reset the environment for each iteration
             done = False
             ep_return = 0
+            ep_loss = 0
 
             while not done:
                 action = self.get_action(state)
@@ -183,33 +184,36 @@ class Agent:
                     loss = self.loss(qsa_b,target_b)
                     self.model.zero_grad()
                     loss.backward()
+                    ep_loss += loss.item()
                     self.optimizer.step()
 
                 state = next_state #did the training, now move on with next state
                 ep_return += reward
 
             stats["Returns"].append(ep_return)
+            stats["Loss"].append(ep_loss)
 
             self.epsilon = max(self.min_epsilon, self.epsilon * self.epsilon_decay)
 
-            print("Total reward = "+str(ep_return))
+            #print("Total reward = "+str(ep_return))
+            print("Total loss = "+str(ep_loss))
 
             #gatherin stats
             if epoch % 10 == 0:
                 self.model.save_model() #save model every 10th epoch
 
-                average_returns = np.mean(stats["Returns"][-100:]) #average of the last 100 returns
-
+                #average_returns = np.mean(stats["Returns"][-100:]) #average of the last 100 returns
+                average_loss = np.mean(stats["Loss"][-100])
                 #graph can turn too big if we try to plot everything through. Only update a graph data point for every 10 epochs
 
-                stats["AvgReturns"].append(average_returns)
+                stats["AverageLoss"].append(average_loss)
                 stats["Epsilon"].append(self.epsilon) #see where the epsilon was at. Do we see higher returns with high epsilon, or only when it dropped etc
 
-                if(len(stats["Returns"]) > 100):
-                    logging.info(f"Epoch: {epoch} - Average return: {np.mean(stats['Returns'][-100:])}  - Epsilon: {self.epsilon} ")
+                if(len(stats["Loss"]) > 100):
+                    logging.info(f"Epoch: {epoch} - Average loss: {np.mean(stats['Loss'][-100:])}  - Epsilon: {self.epsilon} ")
                 else:
                     #for the first 100 iterations, just return the episode return,otherwise return the average like above
-                    logging.info(f"Epoch: {epoch} - Episode return: {np.mean(stats['Returns'][-1:])}  - Epsilon: {self.epsilon} ")
+                    logging.info(f"Epoch: {epoch} - Episode loss: {np.mean(stats['Loss'][-1:])}  - Epsilon: {self.epsilon} ")
 
             if epoch % self.sync_network_rate == 0 and epoch > 0:
                 #TODO: consider tau here instead rather than quick changes
