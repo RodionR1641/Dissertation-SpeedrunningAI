@@ -56,9 +56,8 @@ class Agent:
     #batch_size
     #learning_rate -> how big of a step we want the agent to take at a time, how quickly we want it to learn. If its too high, jump erradically from solution to solution
     #rather than slowly building to a right solution. Want it to be high enough to pick up changes though, but too high it wont learn well
-    def __init__(self,input_dims,device="cpu",epsilon=1.0,min_epsilon=0.1,nb_warmup=20000,nb_actions=5,memory_capacity=100_000,
-                 batch_size=32,learning_rate=1e-4):
-        
+    def __init__(self,input_dims,device="cpu",epsilon=1.0,min_epsilon=0.1,nb_warmup=250_000,nb_actions=5,memory_capacity=100_000,
+                 batch_size=32,learning_rate=0.00020):
         
         self.model = MarioNet(input_dims,nb_actions=nb_actions,device=device) #5 actions for agent can do in this game
 
@@ -76,12 +75,17 @@ class Agent:
         #hyperparameters
         self.learning_rate = learning_rate
         self.nb_warmup = nb_warmup
-        self.gamma = 0.9 #how much we discount future rewards compared to immediate rewards
+        self.gamma = 0.95 #how much we discount future rewards compared to immediate rewards
         self.epsilon = epsilon
         self.min_epsilon = min_epsilon
+
+        #self.epsilon_lambda = np.log(1/min_epsilon) / nb_warmup # this is the epsilon decay rate
+
+        #update epsilon at every time step instead now
         self.epsilon_decay = 0.99999975#1- (((epsilon - min_epsilon) / nb_warmup) *2) # linear decay rate, close to the nb_warmup steps count
         self.batch_size = batch_size
-        self.sync_network_rate = 1000
+        self.sync_network_rate = 10000
+        self.game_steps = 0 #track how many steps taken over entire training
         
         
         #Combines adaptive learning rates with weight decay regularisation for better generalisation
@@ -93,7 +97,7 @@ class Agent:
         storage = LazyMemmapStorage(memory_capacity)
         self.replay_buffer = TensorDictReplayBuffer(storage=storage)
         
-        logging.info(f"starting, epsilon={self.epsilon},epsilon_decay={self.epsilon_decay}")
+        logging.info(f"starting, device={device}")
 
     #state is image of our environment
     def get_action(self,state,test=False):
@@ -133,6 +137,16 @@ class Agent:
         # if alpha 0 -> all experiences sampled uniformly, if alpha = 1 -> experiences sample fully by priority
         self.replay_buffer.update_priority(indices, priorities)
 
+    def decay_epsilon(self):
+        # not exponential, but good enough
+        self.epsilon = max(self.epsilon * self.epsilon_decay, self.min_epsilon)
+
+    def sync_networks(self):
+        if self.game_steps % self.sync_network_rate == 0 and self.game_steps > 0:
+            #TODO: consider tau here instead rather than quick changes
+            self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
+
+
     #epochs = how many iterations to train for
     def train(self,env, epochs):
         #see how the model is doing over time
@@ -149,6 +163,7 @@ class Agent:
             while not done:
                 action = self.get_action(state)
 
+                self.game_steps += 1
                 next_state,reward,done,info = env.step(action)
 
                 self.store_memory(state,action,reward,next_state,done)#record both the previous and next_state
@@ -157,6 +172,8 @@ class Agent:
                 #can take out of memory only if sufficient size
                 if len(self.replay_buffer) >= (self.batch_size * 10):
                     
+                    self.sync_networks()
+
                     samples = self.replay_buffer.sample(self.batch_size).to(self.model.device)
 
                     keys = ("state","action","reward","next_state","done")
@@ -186,6 +203,7 @@ class Agent:
                     loss.backward()
                     ep_loss += loss.item()
                     self.optimizer.step()
+                    self.decay_epsilon() #decay epsilon at each step in environment
 
                 state = next_state #did the training, now move on with next state
                 ep_return += reward
@@ -193,10 +211,9 @@ class Agent:
             stats["Returns"].append(ep_return)
             stats["Loss"].append(ep_loss)
 
-            self.epsilon = max(self.min_epsilon, self.epsilon * self.epsilon_decay)
-
             #print("Total reward = "+str(ep_return))
             print("Total loss = "+str(ep_loss))
+            print("Time Steps = "+str(self.game_steps))
 
             #gatherin stats
             if epoch % 10 == 0:
@@ -215,9 +232,7 @@ class Agent:
                     #for the first 100 iterations, just return the episode return,otherwise return the average like above
                     logging.info(f"Epoch: {epoch} - Episode loss: {np.mean(stats['Loss'][-1:])}  - Epsilon: {self.epsilon} ")
 
-            if epoch % self.sync_network_rate == 0 and epoch > 0:
-                #TODO: consider tau here instead rather than quick changes
-                self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
+            if epoch % 100 == 0:
                 plotter.update_plot(stats)
             
             if epoch % 1000 == 0:
