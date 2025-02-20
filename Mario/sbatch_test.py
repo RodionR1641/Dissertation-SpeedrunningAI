@@ -4,7 +4,7 @@ import datetime
 import torch
 
 # Create log directory
-log_dir = "/cs/home/psyrr4/Code/Code/logs"
+log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
 if not os.path.exists(log_dir):
 	os.makedirs(log_dir)
 
