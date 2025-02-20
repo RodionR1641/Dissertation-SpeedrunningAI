@@ -1,9 +1,12 @@
-name: gym_train
+name: gym_mario
 channels:
+  - conda-forge
+  - pytorch
+  - nvidia
+  - defaults
   - https://repo.anaconda.com/pkgs/main
   - https://repo.anaconda.com/pkgs/r
   - https://repo.anaconda.com/pkgs/msys2
-  - conda-forge
 dependencies:
   - gym=0.21
   - python==3.8.15
@@ -14,4 +17,5 @@ dependencies:
   - numpy
   - pytorch==1.12.1
   - torchaudio==0.12.1
+  - cudatoolkit=11.6 
 prefix: C:\Users\rasul\miniconda3\envs\gym_train
