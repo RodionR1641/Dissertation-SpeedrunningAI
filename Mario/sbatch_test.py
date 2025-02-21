@@ -8,7 +8,6 @@ log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
 if not os.path.exists(log_dir):
 	os.makedirs(log_dir)
 
-f = open("test_1.txt", "w")
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
 log_file = os.path.join(log_dir, f"experiment_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_rank{rank}.log")

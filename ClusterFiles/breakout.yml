@@ -1,4 +1,4 @@
-name: gym_train
+name: gym_combined
 channels:
   - conda-forge
   - pytorch
