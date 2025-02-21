@@ -14,7 +14,7 @@ from torchrl.data.replay_buffers import TensorDictReplayBuffer
 from torchrl.data.replay_buffers.storages import LazyMemmapStorage
 from model import MarioNet
 
-log_dir = "/cs/home/psyrr4/Code/Code/logs"
+log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
 os.makedirs(log_dir, exist_ok=True)
 
 # Define log file name (per process)
