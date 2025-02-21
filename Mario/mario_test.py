@@ -8,6 +8,7 @@ from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
 env = gym_super_mario_bros.make('SuperMarioBros-v0')
 env = JoypadSpace(env, SIMPLE_MOVEMENT)
 
+print("Got here")
 log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
 if not os.path.exists(log_dir):
 	os.makedirs(log_dir)
