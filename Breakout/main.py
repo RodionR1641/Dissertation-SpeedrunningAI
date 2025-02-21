@@ -14,7 +14,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 environment = DQNBreakout(device=device)
 
-user_input = True
+user_input = False
 
 model = AtariNet(nb_actions=4) #4 actions for agent can do in this game
 model.to(device) # move torch module/network to a specific device
