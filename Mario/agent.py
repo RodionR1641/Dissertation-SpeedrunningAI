@@ -28,21 +28,22 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
-print("starting logging")
-logging.info(f"Process {rank} started training on GPUs")
+def print_info():
+    print("starting logging")
+    logging.info(f"Process {rank} started training on GPUs")
 
-if torch.cuda.is_available():
-    try:
-        logging.info(torch.cuda.current_device())
-        logging.info("GPU Name: " + torch.cuda.get_device_name(0))
-        logging.info("PyTorch Version: " + torch.__version__)
-        logging.info("CUDA Available: " + str(torch.cuda.is_available()))
-        logging.info("CUDA Version: " + str(torch.version.cuda))
-        logging.info("Number of GPUs: " + str(torch.cuda.device_count()))
-    except RuntimeError as e:
-        logging.info(f"{e}")
-else:
-	logging.info("cuda not available")
+    if torch.cuda.is_available():
+        try:
+            logging.info(torch.cuda.current_device())
+            logging.info("GPU Name: " + torch.cuda.get_device_name(0))
+            logging.info("PyTorch Version: " + torch.__version__)
+            logging.info("CUDA Available: " + str(torch.cuda.is_available()))
+            logging.info("CUDA Version: " + str(torch.version.cuda))
+            logging.info("Number of GPUs: " + str(torch.cuda.device_count()))
+        except RuntimeError as e:
+            logging.info(f"{e}")
+    else:
+        logging.info("cuda not available")
 
 #plays the game
 #covers a lot of training
@@ -98,6 +99,7 @@ class Agent:
         self.replay_buffer = TensorDictReplayBuffer(storage=storage)
         
         logging.info(f"starting, device={device}")
+        print_info()
 
     #state is image of our environment
     def get_action(self,state,test=False):
