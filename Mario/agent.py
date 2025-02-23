@@ -58,7 +58,7 @@ class Agent:
     #learning_rate -> how big of a step we want the agent to take at a time, how quickly we want it to learn. If its too high, jump erradically from solution to solution
     #rather than slowly building to a right solution. Want it to be high enough to pick up changes though, but too high it wont learn well
     def __init__(self,input_dims,device="cpu",epsilon=1.0,min_epsilon=0.1,nb_warmup=250_000,nb_actions=5,memory_capacity=100_000,
-                 batch_size=32,learning_rate=0.00020):
+                 batch_size=32,learning_rate=0.00020,gamma=0.95,sync_network_rate=10_000,use_vit=False):
         
         self.model = MarioNet(input_dims,nb_actions=nb_actions,device=device) #5 actions for agent can do in this game
 
@@ -76,7 +76,7 @@ class Agent:
         #hyperparameters
         self.learning_rate = learning_rate
         self.nb_warmup = nb_warmup
-        self.gamma = 0.95 #how much we discount future rewards compared to immediate rewards
+        self.gamma = gamma #how much we discount future rewards compared to immediate rewards
         self.epsilon = epsilon
         self.min_epsilon = min_epsilon
 

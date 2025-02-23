@@ -10,8 +10,6 @@ source /usr2/share/gpu.sbatch
 
 #torchrun main.py --data-path /db/psyrr4/breakout/
 
-echo "GOt Here sh"
-
 LOG_DIR="/cs/home/psyrr4/Code/Code/Mario/logs"
 mkdir -p $LOG_DIR
 
