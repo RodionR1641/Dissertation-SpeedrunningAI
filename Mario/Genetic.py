@@ -43,16 +43,17 @@ class GeneticHyperparameterSearch:
         )
 
         # Train for a fixed number of episodes and return performance
-        rewards = []
-        for episode in range(10):  # Train for 10 episodes (keep it short)
-            total_reward = agent.train(env=self.env, epochs=1)  # Train for 1 epoch
-            rewards.append(total_reward)
+        average_losses = []
+        for episode in range(5):  # Train for 5 episodes for average(keep it short)
+            stats = agent.train(env=self.env, epochs=5000)  # Train for "small" amount of epochs
+            average_losses.append(stats["AverageLoss"]) #average loss will be over last 100, but it is representative to "final" trained agent
 
-        return np.mean(rewards)
+        return np.mean(average_losses)
     
     #select top k best performing agents
     def select_best_agents(self,population,fitness_scores,top_k=4):
-        sorted_indices = np.argsort(fitness_scores)[::-1] #descending order of indices
+        sorted_indices = np.argsort(fitness_scores) #ascending order of fitness score indices
+        #best_agents are the ones with lowest average loss
         best_agents = []
         for i in range(top_k):
             index = sorted_indices[i]
@@ -73,7 +74,7 @@ class GeneticHyperparameterSearch:
         if random.random() < self.mutation_rate:
             agent["learning_rate"] *= random.choice([0.8, 1.2])  # Slightly change LR
         if random.random() < self.mutation_rate:
-            agent["gamma"] += random.uniform(-0.01, 0.01)  # Small change to gamma
+            agent["gamma"] += random.uniform(-0.02, 0.02)  # Small change to gamma
         if random.random() < self.mutation_rate:
             agent["sync_network_rate"] = random.randint(1000, 50000)  # Re-randomize
         if random.random() < self.mutation_rate:
@@ -91,7 +92,7 @@ class GeneticHyperparameterSearch:
 
             for agent_params in population:
                 score = self.train_agent(params=agent_params,input_dims=input_dims,device=device)
-                fitness_scores.append(score)
+                fitness_scores.append(score) #the index here will be the same as corresponding population index
             
             best_agents = self.select_best_agents(population,fitness_scores)
 
