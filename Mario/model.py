@@ -13,7 +13,7 @@ class MarioNet(nn.Module):
 
         self.relu = nn.ReLU()
 
-        #input_shape[0] tells how many frames are input
+        #input_shape[0] tells the C number of channels in C,H,W input shape
         self.conv1 = nn.Conv2d(input_shape[0],32,kernel_size=(8,8),stride=(4,4))
         #arguments -> number of channels(1 for grayscale),number of channels out,kernel size, stride
         #each layer shrinks image, pull more info out of the image and store this info in kernel layers(weights)
