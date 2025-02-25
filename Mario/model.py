@@ -116,3 +116,5 @@ class MarioNet(nn.Module):
             print(f"No weights filename: {weights_filename}")
             print(f"Error: {e}")
     
+
+MarioNet((4, 84, 84))
