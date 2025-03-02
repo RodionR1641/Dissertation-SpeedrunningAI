@@ -26,7 +26,7 @@ def parse_args():
         help="the learning rate of the optimizer")
     parser.add_argument("--seed", type=int, default=1,
         help="seed of the experiment")
-    parser.add_argument("--total-timesteps", type=int, default=25000,
+    parser.add_argument("--total-timesteps", type=int, default=10_000_000, # 10 million timesteps
         help="total timesteps of the experiments")
     parser.add_argument("--torch-deterministic", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True, #reproduce experiments
         help="if toggled, `torch.backends.cudnn.deterministic=False`")
@@ -45,7 +45,7 @@ def parse_args():
 
     
     # Algorithm specific arguments
-    parser.add_argument("--num-envs", type=int, default=4, #number of sub environments in a vector environment
+    parser.add_argument("--num-envs", type=int, default=8, #number of sub environments in a vector environment
         help="the number of parallel game environments")
     
     parser.add_argument("--num-steps", type=int, default=128,
@@ -132,7 +132,7 @@ if __name__ == "__main__":
         [make_env(args.gym_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
     )#vectorised environment
 
-    ac_model = MarioNet(envs).to(device) #actor critic model
+    ac_model = MarioNet(envs,input_shape=envs[0].observation_space.shape).to(device) #actor critic model. The envs[0] probably doesnt work, rewrite it
 
     optimizer = optim.Adam(ac_model.parameters(), lr=args.learning_rate, eps=1e-5) #epsilon decay of 1e-5
 
