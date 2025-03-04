@@ -8,25 +8,33 @@ import cv2
 from PIL import Image
 import torch
 from gym.wrappers import GrayScaleObservation, ResizeObservation, FrameStack, RecordEpisodeStatistics, RecordVideo
-from stable_baselines3.common.atari_wrappers import NoopResetEnv, MaxAndSkipEnv, EpisodicLifeEnv
+from stable_baselines3.common.atari_wrappers import MaxAndSkipEnv, EpisodicLifeEnv
+import random
+
+
+from stable_baselines3.common.type_aliases import AtariResetReturn, AtariStepReturn
+from typing import Dict, SupportsFloat
 
 #handles the environment, pre-processing using wrappers and
 #overriding the default step and reset methods
 class Mario(gym.Wrapper):
     #rgb_array gives pixel info of game for us to work with
     # human mode actually allows to see
-    def __init__(self,device='cpu',env_id="SuperMarioBros-1-1-v0"):
+    def __init__(self,device='cpu',env_id="SuperMarioBros-1-1-v0",seed=None):
         env = gym_super_mario_bros.make(env_id)
         env = JoypadSpace(env, RIGHT_ONLY)
 
         #aaply wrappers for statistics
         env = RecordEpisodeStatistics(env) #record statistics of episode return
-        #env = RecordVideo(env,"videos", record_video_trigger=lambda t: t % 100 == 0) # record video of agent playing
         
         #take random number of NOOPs on reset. overwrite reset function, sample random number of noops between 0 and 30, execute the noop and then return
         # add stochasticity to environment
         
-        #env = NoopResetEnv(env=env,noop_max=30)
+
+        self.seed = seed
+        self.random_gen = random.Random(self.seed)
+
+        env = NoopResetEnv(env=env,noop_max=30,rng_gen=self.random_gen)
         # skip 4 frames by default, repeat agents actions for those frames. Done for efficiency. Take the max pixel values over last 2 frames
         
         #env = MaxAndSkipEnv(env=env,skip=4)
@@ -59,13 +67,38 @@ class Mario(gym.Wrapper):
                 break
         
         return state,total_reward,done,info
+    
 
 
-    #2 functions we use the most -> reset and step
-    #reset is to bring it back to setup state
-    #overriding it here compared to default
-    def reset(self):
-        state = self.env.reset()
-        #initial state
+class NoopResetEnv(gym.Wrapper):
+    """
+    Sample initial states by taking random number of no-ops on reset.
+    No-op is assumed to be action 0.
 
-        return state
+    :param env: Environment to wrap
+    :param noop_max: Maximum value of no-ops to run
+    """
+
+    def __init__(self, env: gym.Env, rng_gen, noop_max: int = 30) -> None:
+        super().__init__(env)
+        self.noop_max = noop_max
+        self.override_num_noops = None
+        self.noop_action = 0
+        self.rng_gen = rng_gen
+        assert env.unwrapped.get_action_meanings()[0] == "NOOP"  # type: ignore[attr-defined]
+
+    def reset(self, **kwargs):
+        self.env.reset(**kwargs)
+        if self.override_num_noops is not None:
+            noops = self.override_num_noops
+        else:
+            noops = self.rng_gen.randint(1,self.noop_max+1)
+        assert noops > 0
+        obs = np.zeros(0)
+        info: Dict = {}
+        for _ in range(noops):
+            obs, _, done, info = self.env.step(self.noop_action)
+            if done:
+                obs, info = self.env.reset(**kwargs)
+        return obs
+    

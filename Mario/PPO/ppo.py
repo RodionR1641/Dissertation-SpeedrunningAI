@@ -88,13 +88,10 @@ def parse_args():
 
 def make_env(gym_id,seed,environment_num,cap_video,name):
     def one_env():
-        env = Mario(device=device,env_id=gym_id)
+        env = Mario(device=device,env_id=gym_id,seed=seed)
         if(cap_video):
             if environment_num == 0:
                 env = RecordVideo(env,f"videos/{name}")
-        env.seed = seed
-        env.action_space.seed(seed)
-        env.observation_space.seed(seed)
         return env    
     return one_env
 
