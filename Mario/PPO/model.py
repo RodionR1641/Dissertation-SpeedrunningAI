@@ -23,7 +23,7 @@ class MarioNet(nn.Module):
             nn.ReLU(),
         )
         # TODO: may need more layers here, and more than 512
-        self.actor = layer_init(nn.Linear(512, envs.single_action.space.n), std=0.01)
+        self.actor = layer_init(nn.Linear(512, envs.single_action_space.n), std=0.01)
         self.critic = layer_init(nn.Linear(512,1), std=1)
         """
         self.critic = nn.Sequential(
@@ -53,7 +53,7 @@ class MarioNet(nn.Module):
         logits = self.actor(hidden) #unnormalised action probabilities
         probabilities = Categorical(logits=logits) #softmax operation to get the action probability distribution we need
         if action is None:
-            action = probabilities.sample
+            action = probabilities.sample()
         #return actions, log probabilities, entropies and values from critic
         return action,probabilities.log_prob(action), probabilities.entropy(),self.critic(hidden)
 

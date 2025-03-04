@@ -126,18 +126,27 @@ if __name__ == "__main__":
     for i in range(100):
         writer.add_scalar("test_loss", i*2 ,global_step=i)
     
+    #seeding
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.backends.cudnn.deterministic = args.torch_deterministic
+
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     envs = gym.vector.SyncVectorEnv(
         [make_env(args.gym_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
     )#vectorised environment
 
-    ac_model = MarioNet(envs,input_shape=envs[0].observation_space.shape).to(device) #actor critic model. The envs[0] probably doesnt work, rewrite it
+    assert isinstance(envs.single_action_space, gym.spaces.Discrete) #only for discrete actions here
+
+    ac_model = MarioNet(envs,input_shape=envs.envs[0].observation_space.shape).to(device) #actor critic model.
 
     optimizer = optim.Adam(ac_model.parameters(), lr=args.learning_rate, eps=1e-5) #epsilon decay of 1e-5
 
 
     observations = envs.reset()
+    """
     for _ in range(200):
         action = envs.action_space.sample()
         observation, reward, done, info = envs.step(action) # once the episode finishes -> discard the current observation and return initial observation of next episode
@@ -145,7 +154,8 @@ if __name__ == "__main__":
             if "episode" in item.keys():
                 print(f"episodic_return {item['episode']['r']}")
                 # the vector environments auto reset
-    
+    """
+                
     # Storage setup - shape is to match num_steps * num_envs size
     obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape).to(device)
     actions = torch.zeros((args.num_steps, args.num_envs) + envs.single_action_space.shape).to(device)
@@ -159,8 +169,8 @@ if __name__ == "__main__":
     start_time = time.time() #helps to calculate fps later
     next_obs = torch.Tensor(envs.reset()).to(device) #store initial and subsequent observations
     next_done = torch.zeros(args.num_envs).to(device)
-
     num_updates = args.total_timesteps // args.batch_size # e.g. 25k/512, this is how many iterations of updating training we have
+    
     print(f"num_updates = {num_updates}")
 
     print("next_obs.shape",next_obs.shape)
@@ -206,141 +216,142 @@ if __name__ == "__main__":
                     writer.add_scalar("charts/episodic_length", item["episode"]["l"], global_step)
                     break
             
-            # use General Advantage Estimation(GAE) to do advantage estimation
+        # use General Advantage Estimation(GAE) to do advantage estimation
 
-            #PPO bootstraps values if environments are not done. The values of next observations are estimated as the end of rollout values
-            
-            # // go over this code
-            with torch.no_grad():
-                next_value = ac_model.get_value(next_obs).reshape(1, -1)
-                #gae way
-                if args.gae:
-                    advantages = torch.zeros_like(rewards).to(device)
-                    lastgaelam = 0
-                    for t in reversed(range(args.num_steps)):
-                        if t == args.num_steps - 1:
-                            nextnonterminal = 1.0 - next_done
-                            nextvalues = next_value
-                        else:
-                            nextnonterminal = 1.0 - dones[t + 1]
-                            nextvalues = values[t + 1]
-                        delta = rewards[t] + args.gamma * nextvalues * nextnonterminal - values[t]
-                        advantages[t] = lastgaelam = delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
-                    returns = advantages + values # different way to do returns, as the other way is sum of discounted rewards i.e. returns[t] = rewards[t] + args.gamma * nextnonterminal * next_return
-                else:
-                    returns = torch.zeros_like(rewards).to(device)
-                    for t in reversed(range(args.num_steps)):
-                        if t == args.num_steps - 1:
-                            nextnonterminal = 1.0 - next_done
-                            next_return = next_value
-                        else:
-                            nextnonterminal = 1.0 - dones[t + 1]
-                            next_return = returns[t + 1]
-                        returns[t] = rewards[t] + args.gamma * nextnonterminal * next_return
-                    advantages = returns - values
-            
-            # flatten the batch and store it. Need it as we break these batches into minibatches for training
-            # so e.g. had 4*128 = 512 for total number in batch, then divide that by 4 to get a 128 minibatch
-            b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)
-            b_logprobs = logprobs.reshape(-1)
-            b_actions = actions.reshape((-1,) + envs.single_action_space.shape)
-            b_advantages = advantages.reshape(-1)
-            b_returns = returns.reshape(-1)
-            b_values = values.reshape(-1)
-
-            #get the minibatch now. Acquire all the indices of a batch, and for each update_epoch -> shuffle these indices. Then loop
-            # through the entire batch, one minibatch at a time(e.g. 128 in each one)
-            b_inds = np.arange(args.batch_size)
-            clipfracs = [] # another debug variable -> measure how often the clip objective is actually triggered ///
-            #optimising the policy and value networks here
-            for epoch in range(args.update_epochs):
-                np.random.shuffle(b_inds)#shuffle batch
-                for start in range(0, args.batch_size, args.minibatch_size):
-                    end = start + args.minibatch_size
-                    mb_inds = b_inds[start:end]
-
-                    #do a forward pass on a minibatch of observations
-                    _, newlogprob, entropy, newvalue = ac_model.get_action_and_value(
-                        b_obs[mb_inds], b_actions.long()[mb_inds] #pass the minibatch actions, so that agent doesnt sample any new actions
-                    )
-                    logratio = newlogprob - b_logprobs[mb_inds] #do logarithmic substraction between new log probabilities and old ones in policy rollout phase
-                    ratio = logratio.exp() #get the ratio of this difference. At the first minibatch, the ratio is one as we wouldnt have modified the parameters yet
-
-                    with torch.no_grad():
-                        #calculate approximate_kl
-                        old_appox_kl = (-logratio).mean() #debug variable -> helps understand how aggressively policy updates
-                        #negative log ratio -> ///
-                        #howver, following approximation is a better estimate
-                        approx_kl = ((ratio -1) - logratio).mean()
-                        #measure how often the clip objective is triggered
-                        clipfracs += [((ratio - 1.0).abs() > args.clip_coef).float().mean().item()]
-
-                    # PPO does advantage normalisation
-                    mb_advantages = b_advantages[mb_inds]
-                    if args.norm_adv:
-                        mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() +1e-8) #substract by mean and divide by st deviation. add a small scalar
-                    
-                    # PPO uses a clipped policy objective
-                    # Polisy loss here  
-                    pg_loss1 = -mb_advantages * ratio
-                    pg_loss2 = -mb_advantages * torch.clamp(ratio,1-args.clip_coef,1+args.clip_coef)
-                    pg_loss = torch.max(pg_loss1,pg_loss2).mean() # we are doing the max of negatives here, whilst the paper did min of positives. But its the same thing
-
-                    # PPO also does value loss clipping
-
-                    # Value loss implementation here
-                    newvalue = newvalue.view(-1)
-                    if args.clip_vloss:
-                        #clipping, ///go over this
-                        v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
-                        v_clipped = b_values[mb_inds] + torch.clamp(
-                            newvalue - b_values[mb_inds],
-                            -args.clip_coef,
-                            args.clip_coef,
-                        )
-                        v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
-                        v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
-                        v_loss = 0.5 * v_loss_max.mean()
+        #PPO bootstraps values if environments are not done. The values of next observations are estimated as the end of rollout values
+        
+        # TODO: go over this code
+        with torch.no_grad():
+            next_value = ac_model.get_value(next_obs).reshape(1, -1)
+            #gae way
+            if args.gae:
+                advantages = torch.zeros_like(rewards).to(device)
+                lastgaelam = 0
+                for t in reversed(range(args.num_steps)):
+                    if t == args.num_steps - 1:
+                        nextnonterminal = 1.0 - next_done
+                        nextvalues = next_value
                     else:
-                        v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean() # normally, the loss values is just MSE between predicted and emperical
+                        nextnonterminal = 1.0 - dones[t + 1]
+                        nextvalues = values[t + 1]
+                    delta = rewards[t] + args.gamma * nextvalues * nextnonterminal - values[t]
+                    advantages[t] = lastgaelam = delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
+                returns = advantages + values # different way to do returns, as the other way is sum of discounted rewards i.e. returns[t] = rewards[t] + args.gamma * nextnonterminal * next_return
+            else:
+                returns = torch.zeros_like(rewards).to(device)
+                for t in reversed(range(args.num_steps)):
+                    if t == args.num_steps - 1:
+                        nextnonterminal = 1.0 - next_done
+                        next_return = next_value
+                    else:
+                        nextnonterminal = 1.0 - dones[t + 1]
+                        next_return = returns[t + 1]
+                    returns[t] = rewards[t] + args.gamma * nextnonterminal * next_return
+                advantages = returns - values
+            
+        # flatten the batch and store it. Need it as we break these batches into minibatches for training
+        # so e.g. had 4*128 = 512 for total number in batch, then divide that by 4 to get a 128 minibatch
+        b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)
+        b_logprobs = logprobs.reshape(-1)
+        b_actions = actions.reshape((-1,) + envs.single_action_space.shape)
+        b_advantages = advantages.reshape(-1)
+        b_returns = returns.reshape(-1)
+        b_values = values.reshape(-1)
 
-                    ## PPO also include entropy loss in its overall loss
-                    # entropy - measure of "chaos" in the action probability distribution. Maximising entropy encourages the agent to explore more
+        #get the minibatch now. Acquire all the indices of a batch, and for each update_epoch -> shuffle these indices. Then loop
+        # through the entire batch, one minibatch at a time(e.g. 128 in each one)
+        b_inds = np.arange(args.batch_size)
+        clipfracs = [] # another debug variable -> measure how often the clip objective is actually triggered ///
 
-                    entropy_loss = entropy.mean()
-                    #this is the overall loss we have 
-                    # we want to minimise the policy loss and the value loss, and maximise the entropy loss
-                    loss = pg_loss - args.ent_coef * entropy_loss + args.vf_coef * v_loss
+        #optimising the policy and value networks here
+        for epoch in range(args.update_epochs):
+            np.random.shuffle(b_inds)#shuffle batch
+            for start in range(0, args.batch_size, args.minibatch_size):
+                end = start + args.minibatch_size
+                mb_inds = b_inds[start:end]
 
-                    #backpropagation and optimising now
-                    optimizer.zero_grad()
-                    loss.backward()
-                    # PPO implements global gradient clipping. We set up a maximum gradient norm, ///
-                    nn.utils.clip_grad_norm_(ac_model.parameters(), args.max_grad_norm)
-                    optimizer.step()
+                #do a forward pass on a minibatch of observations
+                _, newlogprob, entropy, newvalue = ac_model.get_action_plus_value(
+                    b_obs[mb_inds], b_actions.long()[mb_inds] #pass the minibatch actions, so that agent doesnt sample any new actions
+                )
+                logratio = newlogprob - b_logprobs[mb_inds] #do logarithmic substraction between new log probabilities and old ones in policy rollout phase
+                ratio = logratio.exp() #get the ratio of this difference. At the first minibatch, the ratio is one as we wouldnt have modified the parameters yet
 
-                #early stopping: if approx_kl go over threshold, stop ////
-                # we implement it at batch level, can also do at minibatch level                
-                if args.target_kl is not None:
-                    if approx_kl > args.target_kl:
-                        break
+                with torch.no_grad():
+                    #calculate approximate_kl
+                    old_approx_kl = (-logratio).mean() #debug variable -> helps understand how aggressively policy updates
+                    #negative log ratio -> ///
+                    #howver, following approximation is a better estimate
+                    approx_kl = ((ratio -1) - logratio).mean()
+                    #measure how often the clip objective is triggered
+                    clipfracs += [((ratio - 1.0).abs() > args.clip_coef).float().mean().item()]
 
-            #debug variable:explained variance - indicate if the value function is a good indicator of the returns ///
-            y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
-            var_y = np.var(y_true)
-            explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+                # PPO does advantage normalisation
+                mb_advantages = b_advantages[mb_inds]
+                if args.norm_adv:
+                    mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8) #substract by mean and divide by st deviation. add a small scalar
+                
+                # PPO uses a clipped policy objective
+                # Polisy loss here  
+                pg_loss1 = -mb_advantages * ratio
+                pg_loss2 = -mb_advantages * torch.clamp(ratio, 1 - args.clip_coef, 1 + args.clip_coef)
+                pg_loss = torch.max(pg_loss1,pg_loss2).mean() # we are doing the max of negatives here, whilst the paper did min of positives. But its the same thing
 
-            #measure stats
-            writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
-            writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
-            writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
-            writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
-            writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
-            writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
-            writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
-            writer.add_scalar("losses/explained_variance", explained_var, global_step)
-            print("SPS:", int(global_step / (time.time() - start_time)))
-            writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+                # PPO also does value loss clipping
+
+                # Value loss implementation here
+                newvalue = newvalue.view(-1)
+                if args.clip_vloss:
+                    #clipping, ///go over this
+                    v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
+                    v_clipped = b_values[mb_inds] + torch.clamp(
+                        newvalue - b_values[mb_inds],
+                        -args.clip_coef,
+                        args.clip_coef,
+                    )
+                    v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
+                    v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
+                    v_loss = 0.5 * v_loss_max.mean()
+                else:
+                    v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean() # normally, the loss values is just MSE between predicted and emperical
+
+                ## PPO also include entropy loss in its overall loss
+                # entropy - measure of "chaos" in the action probability distribution. Maximising entropy encourages the agent to explore more
+
+                entropy_loss = entropy.mean()
+                #this is the overall loss we have 
+                # we want to minimise the policy loss and the value loss, and maximise the entropy loss
+                loss = pg_loss - args.ent_coef * entropy_loss + args.vf_coef * v_loss
+
+                #backpropagation and optimising now
+                optimizer.zero_grad()
+                loss.backward()
+                # PPO implements global gradient clipping. We set up a maximum gradient norm, ///
+                nn.utils.clip_grad_norm_(ac_model.parameters(), args.max_grad_norm)
+                optimizer.step()
+
+            #early stopping: if approx_kl go over threshold, stop ////
+            # we implement it at batch level, can also do at minibatch level                
+            if args.target_kl is not None:
+                if approx_kl > args.target_kl:
+                    break
+
+        #debug variable:explained variance - indicate if the value function is a good indicator of the returns ///
+        y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
+        var_y = np.var(y_true)
+        explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+
+        #measure stats
+        writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
+        writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
+        writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
+        writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
+        writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
+        writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
+        writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
+        writer.add_scalar("losses/explained_variance", explained_var, global_step)
+        print("SPS:", int(global_step / (time.time() - start_time)))
+        writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
     envs.close()
     writer.close()
