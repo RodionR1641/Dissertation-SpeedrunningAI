@@ -25,11 +25,14 @@ class Mario(gym.Wrapper):
         
         #take random number of NOOPs on reset. overwrite reset function, sample random number of noops between 0 and 30, execute the noop and then return
         # add stochasticity to environment
-        env = NoopResetEnv(env=env,noop_max=30)
+        
+        #env = NoopResetEnv(env=env,noop_max=30)
         # skip 4 frames by default, repeat agents actions for those frames. Done for efficiency. Take the max pixel values over last 2 frames
-        env = MaxAndSkipEnv(env=env,skip=4)
+        
+        #env = MaxAndSkipEnv(env=env,skip=4)
         # wrapper treats every end of life as end of that episode. So, if any life is lost episode ends. But reset is called only if lives are exhausted
-        env = EpisodicLifeEnv(env=env) # this one might not work as it expects ale, and others also expect terminated as part of "step" function. Can rewrite the wrapper though
+        
+        #env = EpisodicLifeEnv(env=env) # this one might not work as it expects ale, and others also expect terminated as part of "step" function. Can rewrite the wrapper though
         #apply wrappers for preprocessing of images
         env = ResizeObservation(env,(84,84)) # for efficiency
         env = GrayScaleObservation(env)
@@ -40,6 +43,23 @@ class Mario(gym.Wrapper):
         self.action_num = len(RIGHT_ONLY)
         self.env = env
         self.device = device
+        self.repeat = 4
+
+
+    def step(self,action):
+        total_reward = 0.0
+        done = False
+        
+        for _ in range(self.repeat):
+            state,reward,done, info = self.env.step(action) # the reward function e.g. for breakout, is defined within that 
+            #environment. In breakout, breaking a brick gives a reward
+            total_reward += reward 
+
+            if done:
+                break
+        
+        return state,total_reward,done,info
+
 
     #2 functions we use the most -> reset and step
     #reset is to bring it back to setup state
