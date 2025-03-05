@@ -64,6 +64,7 @@ class Agent:
 
         self.target_model = copy.deepcopy(self.model).eval() #when we work with q learning, want a model and another model we can evaluate of off. Part of Dueling deep Q
         
+        
         if os.path.exists("models"):
             self.model.load_model(device=device)
             self.target_model.load_model(device=device)
@@ -114,7 +115,7 @@ class Agent:
             state = torch.tensor(np.array(state), dtype=torch.float32) \
                         .unsqueeze(0) \
                         .to(self.model.device)
-
+            #use advantage function to calculate max action
             return self.model(state).argmax().item()
 
     def store_memory(self,state,action,reward,next_state,done):
@@ -140,7 +141,7 @@ class Agent:
         self.replay_buffer.update_priority(indices, priorities)
 
     def decay_epsilon(self):
-        # not exponential, but good enough
+        # TODO: can do exponential, but good enough
         self.epsilon = max(self.epsilon * self.epsilon_decay, self.min_epsilon)
 
     def sync_networks(self):
@@ -174,6 +175,8 @@ class Agent:
                 #can take out of memory only if sufficient size
                 if len(self.replay_buffer) >= (self.batch_size * 10):
                     
+                    self.optimizer.zero_grad()
+
                     self.sync_networks()
 
                     samples = self.replay_buffer.sample(self.batch_size).to(self.model.device)
@@ -194,14 +197,11 @@ class Agent:
                     # dqn = r + gamma * max Q(s,a)
                     # ddqn = r + gamma * online_network(s',argmax target_network_Q(s',a'))
                     #detach -> important as we dont want to back propagate on target network
-                    target_b = rewards + self.gamma * next_qsa_b * (1 - dones.float()).detach() #1-dones.float() -> stop propagating when 
+                    target_b = (rewards + self.gamma * next_qsa_b * (1 - dones.float()) ).detach() #1-dones.float() -> stop propagating when finished episode
                     
                     #indices = samples["index"]
-                    #td_errors = torch.abs(qsa_b-target_b).detach()
-                    #self.update_priorities(indices,td_errors)
 
                     loss = self.loss(qsa_b,target_b)
-                    self.model.zero_grad()
                     loss.backward()
                     ep_loss += loss.item()
                     self.optimizer.step()
@@ -222,7 +222,7 @@ class Agent:
                 self.model.save_model() #save model every 10th epoch
 
                 #average_returns = np.mean(stats["Returns"][-100:]) #average of the last 100 returns
-                average_loss = np.mean(stats["Loss"][-100])
+                average_loss = np.mean(stats["Loss"][-100:])
                 #graph can turn too big if we try to plot everything through. Only update a graph data point for every 10 epochs
 
                 stats["AverageLoss"].append(average_loss)
