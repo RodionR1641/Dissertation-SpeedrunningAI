@@ -193,7 +193,7 @@ if __name__ == "__main__":
     env_id = ""
     n_actions = 3
     input_dims = []
-    N_GAMES = 10000
+    NUM_EPISODES = 10000
     T_MAX = 5 # comes from the paper
     global_actor_critic = ActorCritic(input_dims=input_dims, n_actions=n_actions)
     global_actor_critic.share_memory() #share its memory
