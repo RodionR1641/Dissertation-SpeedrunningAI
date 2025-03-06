@@ -22,7 +22,7 @@ class DQN_Mario(gym.Wrapper):
         if(use_vit):
             env = ResizeObservation(env,shape=256)
         else:
-            env = ResizeObservation(env,shape=256)
+            env = ResizeObservation(env,shape=84)
         env = GrayScaleObservation(env)
         env = FrameStack(env,num_stack=4,lz4_compress=True)
 
@@ -61,14 +61,6 @@ class DQN_Mario(gym.Wrapper):
         #why? -> neural networks operate on Tensors, not scalars. Standardising the reward shape etc is useful for batching.
         #a single tensor may have size (1,1), in a batch these tensors can then have shape (batch_size,1)
         #total_reward is float
-        
-        """
-        total_reward = torch.tensor(total_reward).view(1,-1).float() # making sure data is standardasised, can be then used in batches
-        total_reward = total_reward.to(self.device) # send this to cpu/gpu for processing
-
-        done = torch.tensor(done).view(1,-1)
-        done = done.to(self.device)
-        """
 
         #why return these?
         #total_reward: feedback for learnng

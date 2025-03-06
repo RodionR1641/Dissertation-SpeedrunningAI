@@ -16,7 +16,7 @@ class MobileViTFeatureExtractor(nn.Module):
         #this is to make the model accept greyscale input instead of rgb 3 channel input
         first_conv_layer = self.model.stem
         self.model.stem = ConvNormAct(
-            in_channels=1,  # Grayscale input
+            in_channels=4,  # Grayscale input
             out_channels=first_conv_layer.conv.out_channels,
             kernel_size=first_conv_layer.conv.kernel_size,
             stride=first_conv_layer.conv.stride,

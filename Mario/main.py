@@ -8,7 +8,7 @@ os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-use_vit = False
+use_vit = True
 
 environment = DQN_Mario(device=device,use_vit=use_vit)
 
