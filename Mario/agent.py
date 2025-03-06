@@ -71,10 +71,11 @@ class ReplayMemory:
     #transition is the data unit at play, tuple of state,action,reward,next state,done. It is an experience of the game at certain time
     def insert(self, transition):
         #this replay memory can get large, can run out of GPU memory quickly so put on cpu
-        transition[0] = torch.tensor(np.array(transition[0]), dtype=torch.float32,device="cpu") #state
+        #divide state and next_state by 255 to normalise around 0 and 1
+        transition[0] = torch.tensor(np.array(transition[0]), dtype=torch.float32,device="cpu") / 255.0 #state.
         transition[1] = torch.tensor(transition[1],device="cpu") #action
         transition[2] = torch.tensor(transition[2],device="cpu") #reward
-        transition[3] = torch.tensor(np.array(transition[3]), dtype=torch.float32,device="cpu")#next_state
+        transition[3] = torch.tensor(np.array(transition[3]), dtype=torch.float32,device="cpu") / 255.0#next_state
         transition[4] = torch.tensor(transition[4],device="cpu") #done
             
         #so store everything about replay memory in CPU,pushes it into computers main RAM
@@ -257,9 +258,6 @@ class Agent:
 
                     states, actions, rewards, next_states, dones = self.memory.sample(self.batch_size)
 
-                    #keys = ("state","action","reward","next_state","done")
-                    # states, actions, rewards, next_states, dones = [samples[key] for key in keys]
-                    
                     qsa_b = self.model(states)  # Shape: (batch_size, n_actions) as network estimates q value for all actions. so have rows of q values for each action
                     qsa_b = qsa_b[np.arange(self.batch_size), actions.squeeze()] #action contains the actual actions taken, remove extra batch dimension via squeeze
                     # then generate an array of batch indices. So select q value of each action taken

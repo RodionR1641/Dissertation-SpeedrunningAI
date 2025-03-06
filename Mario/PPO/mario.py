@@ -46,7 +46,6 @@ class Mario(gym.Wrapper):
         self.action_num = len(RIGHT_ONLY)
         self.env = env
         self.device = device
-        self.repeat = 4
 
 
     """
