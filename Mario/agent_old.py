@@ -46,81 +46,6 @@ def print_info():
     else:
         logging.info("cuda not available")
 
-#agent's memory
-# The way deep q learning works: 
-# build a buffer over time of all of the state-action pairs it played
-# pick up the state,the action, the next state and the reward of every play
-# then use that to Train the model to approximate the Q value
-
-# so a way for the agent to remember X number of games and then replay it back for training
-class ReplayMemory:
-    
-    def __init__(self, capacity, device="cpu"):
-        self.capacity = capacity #memory capacity
-        self.memory = []
-        self.position = 0
-        self.device = device
-        self.memory_max_report = 0
-
-    #TODO: can implement a Prioritised Sampling -> sample more important experiences to learn from. Given a probability score
-    # transitions where agent made a lot of errors are important, e.g. high temporal difference. These experiences indicate stuff
-    # the model struggles with, so we can learn faster and better
-
-
-    #need to make sure memory doesnt go over a certain size
-    #transition is the data unit at play, tuple of state,action,reward,next state,done. It is an experience of the game at certain time
-    def insert(self, transition):
-        #this replay memory can get large, can run out of GPU memory quickly so put on cpu
-        transition[0] = torch.tensor(np.array(transition[0]), dtype=torch.float32,device="cpu") #state
-        transition[1] = torch.tensor(transition[1],device="cpu") #action
-        transition[2] = torch.tensor(transition[2],device="cpu") #reward
-        transition[3] = torch.tensor(np.array(transition[3]), dtype=torch.float32,device="cpu")#next_state
-        transition[4] = torch.tensor(transition[4],device="cpu") #done
-            
-        #so store everything about replay memory in CPU,pushes it into computers main RAM
-        #when we use "sample" method, we can push back to device(e.g. gpu)
-
-        if len(self.memory) < self.capacity:
-            self.memory.append(transition)
-        else:
-            #keep everything under capacity(e.g. a million). Ensure we keep most recent experiences
-            self.memory.remove(self.memory[0]) # like a queue
-            self.memory.append(transition)
-    
-    # sample the memory now, using a batch size 
-    def sample(self,batch_size=32):
-        assert self.can_sample(batch_size)
-
-
-        indices = torch.randperm(len(self.memory))[:batch_size] #make sure we have unique indices
-        #make sure they are back on device
-        batch = [self.memory[i] for i in indices]
-        batch_states = torch.stack([b[0] for b in batch]).to(self.device)  # Shape: [batch_size, 4, 84, 84]
-        batch_actions = torch.stack([b[1] for b in batch]).to(self.device) # Shape: [batch_size]
-        batch_rewards = torch.stack([b[2] for b in batch]).to(self.device)  # Shape: [batch_size]
-        batch_next_states = torch.stack([b[3] for b in batch]).to(self.device)  # Shape: [batch_size, 4, 84, 84]
-        batch_dones = torch.stack([b[4] for b in batch]).to(self.device)  # Shape: [batch_size]
-
-        return batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones
-
-
-        batch = random.sample(self.memory,batch_size) # take a random sample of transitions
-        batch = zip(*batch) #basically make columns out of rows. We get transitions as tuples of (state,action .....)
-        #so we then make lists of columns of state,action ...
-        return [torch.cat(items).to(self.device) for items in batch] # convert each list of components
-       #into a tensor using torch.cat(), and back to device now
-       #when batching, these will have size 32 etc
-
-    # see if we can sample from memory given a batch size, so have enough memory to sample
-    def can_sample(self,batch_size):
-        #need enough varied data to sample, as we sample random data
-        return len(self.memory) >= batch_size * 10
-
-    #why do we need a len object? -> we need to make sure we get the number of items in memory rather than some object output
-    #other objects can call the len function of this class, but get what we actually want which is len(self.memory) rather than e.g. len(self)
-    def __len__(self):
-        return len(self.memory) #get number of transitions stored in buffer
-
 #plays the game
 #covers a lot of training
 class Agent:
@@ -147,9 +72,8 @@ class Agent:
             self.model.load_model(device=device)
             self.target_model.load_model(device=device)
         """
-        self.device = device
-        self.model.to(self.device)
-        self.target_model.to(self.device)
+        self.model.to(device)
+        self.target_model.to(device)
 
         self.nb_actions = nb_actions
 
@@ -165,7 +89,7 @@ class Agent:
         #update epsilon at every time step instead now
         self.epsilon_decay = 0.99999975#1- (((epsilon - min_epsilon) / nb_warmup) *2) # linear decay rate, close to the nb_warmup steps count
         self.batch_size = batch_size
-        self.sync_network_rate = sync_network_rate
+        self.sync_network_rate = 10000
         self.game_steps = 0 #track how many steps taken over entire training
         
         
@@ -173,7 +97,10 @@ class Agent:
         self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
         self.loss = torch.nn.MSELoss()
         
-        self.memory = ReplayMemory(memory_capacity,device=self.device)
+        #sampler = PrioritizedSampler(max_capacity=memory_capacity, priority_key="td_error")
+
+        storage = LazyMemmapStorage(memory_capacity)
+        self.replay_buffer = TensorDictReplayBuffer(storage=storage)
         
         logging.info(f"starting, device={device}")
         print_info()
@@ -244,22 +171,22 @@ class Agent:
 
                 self.game_steps += 1
                 next_state,reward,done,info = env.step(action)
-                #order of list matters
-                self.memory.insert([state, action, reward, next_state, done])
+
+                self.store_memory(state,action,reward,next_state,done)#record both the previous and next_state
 
                 #actual training part
                 #can take out of memory only if sufficient size
-                #if len(self.replay_buffer) >= (self.batch_size * 10):
-                if self.memory.can_sample(self.batch_size):    
+                if len(self.replay_buffer) >= (self.batch_size * 10):
+                    
                     self.optimizer.zero_grad()
 
                     self.sync_networks()
 
-                    states, actions, rewards, next_states, dones = self.memory.sample(self.batch_size)
+                    samples = self.replay_buffer.sample(self.batch_size).to(self.model.device)
 
-                    #keys = ("state","action","reward","next_state","done")
-                    # states, actions, rewards, next_states, dones = [samples[key] for key in keys]
-                    
+                    keys = ("state","action","reward","next_state","done")
+
+                    states, actions, rewards, next_states, dones = [samples[key] for key in keys]
                     qsa_b = self.model(states)  # Shape: (batch_size, n_actions) as network estimates q value for all actions. so have rows of q values for each action
                     qsa_b = qsa_b[np.arange(self.batch_size), actions.squeeze()] #action contains the actual actions taken, remove extra batch dimension via squeeze
                     # then generate an array of batch indices. So select q value of each action taken
@@ -281,12 +208,10 @@ class Agent:
                     loss.backward()
                     ep_loss += loss.item()
                     self.optimizer.step()
-                    print("In here btw")
                     self.decay_epsilon() #decay epsilon at each step in environment
 
                 state = next_state #did the training, now move on with next state
                 ep_return += reward
-                print(f"Got here, episode return={ep_return}, time step = {self.game_steps}")
 
             stats["Returns"].append(ep_return)
             stats["Loss"].append(ep_loss)
