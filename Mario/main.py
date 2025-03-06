@@ -8,7 +8,9 @@ os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-environment = DQN_Mario(device=device)
+use_vit = False
+
+environment = DQN_Mario(device=device,use_vit=use_vit)
 
 num_actions = environment.action_num
 
@@ -36,6 +38,6 @@ else:
     agent = Agent(input_dims=environment.observation_space.shape,device=device,epsilon=1.0,nb_warmup=250_000,
                   nb_actions=num_actions,
                   memory_capacity=10_000,
-                  batch_size=32)
+                  batch_size=32,use_vit=use_vit)
 
     agent.train(env=environment, epochs=200000) #pass the DQNBreakout environment for agent to train on

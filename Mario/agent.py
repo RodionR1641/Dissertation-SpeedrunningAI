@@ -13,6 +13,7 @@ from tensordict import TensorDict
 from torchrl.data.replay_buffers import TensorDictReplayBuffer
 from torchrl.data.replay_buffers.storages import LazyMemmapStorage
 from model import MarioNet
+from model_mobile_vit import MarioNet_ViT
 
 log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
 os.makedirs(log_dir, exist_ok=True)
@@ -60,15 +61,17 @@ class Agent:
     def __init__(self,input_dims,device="cpu",epsilon=1.0,min_epsilon=0.1,nb_warmup=250_000,nb_actions=5,memory_capacity=100_000,
                  batch_size=32,learning_rate=0.00020,gamma=0.95,sync_network_rate=10_000,use_vit=False):
         
-        self.model = MarioNet(input_dims,nb_actions=nb_actions,device=device) #5 actions for agent can do in this game
-
+        if(use_vit):
+            self.model = MarioNet_ViT(nb_actions=nb_actions,device=device) #5 actions for agent can do in this game
+        else:
+            self.model = MarioNet(input_dims,nb_actions=nb_actions,device=device)
         self.target_model = copy.deepcopy(self.model).eval() #when we work with q learning, want a model and another model we can evaluate of off. Part of Dueling deep Q
         
-        
+        """
         if os.path.exists("models"):
             self.model.load_model(device=device)
             self.target_model.load_model(device=device)
-        
+        """
         self.model.to(device)
         self.target_model.to(device)
 

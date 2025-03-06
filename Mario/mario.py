@@ -14,12 +14,15 @@ from gym.wrappers import GrayScaleObservation, ResizeObservation, FrameStack
 class DQN_Mario(gym.Wrapper):
     #rgb_array gives pixel info of game for us to work with
     # human mode actually allows to see
-    def __init__(self,repeat=4,device='cpu'):
+    def __init__(self,use_vit=False,repeat=4,device='cpu'):
         env = gym_super_mario_bros.make("SuperMarioBros-1-1-v0")
         env = JoypadSpace(env, RIGHT_ONLY)
 
         #apply wrappers for preprocessing of images
-        env = ResizeObservation(env,shape=84)
+        if(use_vit):
+            env = ResizeObservation(env,shape=256)
+        else:
+            env = ResizeObservation(env,shape=256)
         env = GrayScaleObservation(env)
         env = FrameStack(env,num_stack=4,lz4_compress=True)
 
