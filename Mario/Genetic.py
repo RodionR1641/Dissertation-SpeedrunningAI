@@ -20,8 +20,7 @@ class GeneticHyperparameterSearch:
             agent_param = {
                 "learn_rate": 10 ** random.uniform(-5,-3), #between 1e-5 and 1e-3
                 "gamma" : random.uniform(0.9,0.99),
-                "sync_network_rate": random.randint(10_000,50_000),
-                "use_vit" : random.choice([True,False]) # use CNN or ViT for training
+                "sync_network_rate": random.randint(10_000,50_000)
             }
             population.append(agent_param)
         return population
@@ -39,7 +38,7 @@ class GeneticHyperparameterSearch:
             learning_rate=params["learning_rate"],
             gamma=params["gamma"],
             sync_network_rate=params["sync_network_rate"],
-            use_vit=params["use_vit"]
+            use_vit=False
         )
 
         # Train for a fixed number of episodes and return performance

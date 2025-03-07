@@ -3,6 +3,7 @@ import os
 import random
 import time
 from distutils.util import strtobool
+import copy
 
 import gym
 import numpy as np
@@ -14,6 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 from gym.wrappers import RecordVideo
 from mario import Mario
 from model import MarioNet
+from model_RND import RNDNetwork
 
 def parse_args():
     # fmt: off
@@ -77,6 +79,8 @@ def parse_args():
         help="the maximum norm for the gradient clipping")
     parser.add_argument("--target-kl", type=float, default=None,
         help="the target KL divergence threshold")
+    parser.add_argument("--rand-net-dist",type=bool,default=True,
+        help="random network distillation to calculate intrinsic rewards that help explore novel states")
     
     args = parser.parse_args()
     args.batch_size = int(args.num_envs * args.num_steps)
@@ -95,6 +99,14 @@ def make_env(gym_id,seed,environment_num,cap_video,name):
         return env    
     return one_env
 
+#use to compute the novelty reward
+def compute_intrinsic_reward(obs):
+    with torch.no_grad():
+        target_features = rnd_target(obs)  # Fixed target network
+    predicted_features = rnd_predictor(obs)  
+    # the features just represent what the . When a state is novel, the difference is bigger so the reward is bigger for getting to that state
+    intrinsic_reward = ((target_features - predicted_features) ** 2).mean(dim=1)  # MSE
+    return intrinsic_reward
 
 
 if __name__ == "__main__":
@@ -140,6 +152,12 @@ if __name__ == "__main__":
     ac_model = MarioNet(envs,input_shape=envs.envs[0].observation_space.shape).to(device) #actor critic model.
 
     optimizer = optim.Adam(ac_model.parameters(), lr=args.learning_rate, eps=1e-5) #epsilon decay of 1e-5
+
+    if(args.rand_net_dist):
+        #have a predictor and target network
+        rnd_target = RNDNetwork(envs.single_observation_space.shape).to(device)
+        rnd_predictor = copy.deepcopy(rnd_target).eval()
+        rnd_optimiser = optim.Adam(rnd_predictor.parameters(), lr=args.learning_rate, eps=1e-5)
 
 
     observations = envs.reset()
@@ -202,6 +220,11 @@ if __name__ == "__main__":
             logprobs[step] = logprob
             
             next_obs, reward, done, info = envs.step(action.cpu().numpy()) #on cpu
+            
+            if args.rand_net_dist:
+                intrinsic_reward = compute_intrinsic_reward(next_obs) #give more reward for novel states
+                reward += args.intr_reward_beta * intrinsic_reward #beta controls how much the intrinsic reward adds 
+            
             rewards[step] = torch.tensor(reward).to(device).view(-1)# to gpu
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(done).to(device)   #reassign variables
 
@@ -319,6 +342,14 @@ if __name__ == "__main__":
                 #this is the overall loss we have 
                 # we want to minimise the policy loss and the value loss, and maximise the entropy loss
                 loss = pg_loss - args.ent_coef * entropy_loss + args.vf_coef * v_loss
+
+                #intrinsic reward loss calculation
+                if args.rand_net_dist:
+                    rnd_loss = nn.MSELoss(rnd_predictor(b_obs[mb_inds]), rnd_target(b_obs[mb_inds]).detach())
+
+                    rnd_optimiser.zero_grad()
+                    rnd_loss.backward()
+                    rnd_optimiser.step()
 
                 #backpropagation and optimising now
                 optimizer.zero_grad()
