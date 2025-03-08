@@ -1,6 +1,6 @@
 import torch.nn as nn
 import torch
-from actor_critic import ActorCritic
+from Mario.A3C.a2c_model import ActorCritic
 from torch.distributions import Categorical # taking probability from network and map it to distribution for us
 import gym_super_mario_bros
 import gym
@@ -9,13 +9,14 @@ from nes_py.wrappers import JoypadSpace
 import torch.optim as optim
 
 class Agent:
-    def __init__(self, alpha=0.0003, gamma=0.99, n_actions=5):
+    def __init__(self,input_shape,lr_rate=1e-5,device="cpu", gamma=0.99, n_actions=5):
         self.gamma=gamma
         self.n_actions = n_actions
         self.action = None #keep track of the last action took, used for loss function
+        self.lr_rate = lr_rate
 
-        self.actor_critic = ActorCritic(n_actions=n_actions)
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
+        self.actor_critic = ActorCritic(input_shape=input_shape,n_actions=n_actions,device=device)
+        self.optimizer = optim.AdamW(self.actor_critic.parameters(), lr=self.lr_rate)
 
     
     def choose_action(self,observation):
@@ -30,13 +31,13 @@ class Agent:
 
         return action.numpy()[0]#return a numpy version of the action as action is a tensor, but openai gym needs numpy arrays. Also add a batch dimension
 
-    def save_models(self):
+    def save_models(self,weights_filename="models/a2c_latest.pt"):
         print("... saving models ...")
-        self.actor_critic #TODO: save here
+        self.actor_critic.save_model(weights_filename=weights_filename)
 
-    def load_models(self):
+    def load_models(self,weigts_filename="models/a2c_latest.pt",device="cpu"):
         print("... loading models ...")
-        ###/////
+        self.actor_critic.load_model(weights_filename=weigts_filename,device=device)
 
     #functionality to learn
 
@@ -61,11 +62,13 @@ class Agent:
 
         #TD loss
         delta = reward + self.gamma * state_value_next *(1-int(done)) - state_value #if its a terminal state, no returns follow after
-
         actor_loss = -log_probs*delta
-
         critic_loss = delta**2
-
         total_loss = actor_loss + critic_loss
-
+        loss_val = total_loss.item()
         #then calculate gradient here
+
+        self.optimiser.zero_grad()
+        total_loss.backward()
+        self.optimiser.step()
+        return loss_val

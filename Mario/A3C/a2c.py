@@ -15,8 +15,7 @@ class ActorCritic(nn.Module):
         self.gamma = gamma
 
         #had 2 separate inputs for our a3c, but in a2c dont need this
-        self.pi1 = nn.Linear(*input_dims, 128)
-        self.v1 = nn.Linear(*input_dims, 128)
+        self.inner = nn.Linear(*input_dims, 128)
 
         self.pi = nn.Linear(128, n_actions)
         self.v = nn.Linear(128, 1)
@@ -36,8 +35,7 @@ class ActorCritic(nn.Module):
         self.states = []
 
     def forward(self, state):
-        pi1 = F.relu(self.pi1(state))
-        v1 = F.relu(self.v1(state))
+        inner = F.relu(self.pi1(state))
 
         pi = self.pi(pi1)
         v = self.v(v1)
