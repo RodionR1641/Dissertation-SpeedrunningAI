@@ -1,11 +1,7 @@
 import torch.nn as nn
 import torch
-from Mario.A3C.a2c_model import ActorCritic
+from a2c_model import ActorCritic
 from torch.distributions import Categorical # taking probability from network and map it to distribution for us
-import gym_super_mario_bros
-import gym
-from gym_super_mario_bros.actions import RIGHT_ONLY
-from nes_py.wrappers import JoypadSpace
 import torch.optim as optim
 
 class Agent:
@@ -16,12 +12,12 @@ class Agent:
         self.lr_rate = lr_rate
 
         self.actor_critic = ActorCritic(input_shape=input_shape,n_actions=n_actions,device=device)
-        self.optimizer = optim.AdamW(self.actor_critic.parameters(), lr=self.lr_rate)
+        self.optimiser = optim.AdamW(self.actor_critic.parameters(), lr=self.lr_rate)
 
     
     def choose_action(self,observation):
 
-        state = torch.tensor([observation],dtype=torch.float) #add a batch dimension to it for neural network to work on it
+        state = torch.tensor(observation,dtype=torch.float).unsqueeze(0) #add a batch dimension to it for neural network to work on it
         pi, v= self.actor_critic(state) #dont need value, just actor actions
         probs = torch.softmax(pi,dim=1) #get the softmax activation, for probability distribution
 
@@ -29,7 +25,7 @@ class Agent:
         action = dist.sample() #sample the distribution
         self.action = action
 
-        return action.numpy()[0]#return a numpy version of the action as action is a tensor, but openai gym needs numpy arrays. Also add a batch dimension
+        return action.item()#return a numpy version of the action as action is a tensor, but openai gym needs numpy arrays. Also add a batch dimension
 
     def save_models(self,weights_filename="models/a2c_latest.pt"):
         print("... saving models ...")
@@ -44,11 +40,11 @@ class Agent:
     def learn(self,state,reward, next_state, done):
         state = torch.tensor([state], dtype=torch.float32)
         next_state = torch.tensor([next_state], dtype=torch.float32)
-        reward = torch.tensor(reward, dtype=torch.float32)
+        reward = torch.tensor(reward, dtype=torch.float32) #this one isnt fed into NN so dont need it to be [] batch dimension
 
         #calculate gradients here
 
-        state_value, probs = self.actor_critic(state)
+        state_value, probs = self.actor_critic(state) #state_value is what critic returns and probs is what actor returns
         state_value_next, _ = self.actor_critic(next_state)
 
         #squeeze the 2 params to get rid of batch dimension for calculation of loss, 1 dimensional quantity
@@ -65,10 +61,10 @@ class Agent:
         actor_loss = -log_probs*delta
         critic_loss = delta**2
         total_loss = actor_loss + critic_loss
-        loss_val = total_loss.item()
+        #loss_val = total_loss.item()
         #then calculate gradient here
 
         self.optimiser.zero_grad()
         total_loss.backward()
         self.optimiser.step()
-        return loss_val
+        return 1

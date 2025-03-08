@@ -1,8 +1,7 @@
 import gym
 import numpy as np
-from Mario.A3C.a2c_agent import Agent
+from a2c_agent import Agent
 import logging
-from plot import LivePlot
 import numpy as np
 import time
 import os
@@ -10,7 +9,13 @@ import logging
 import datetime
 import random
 import torch
+import sys
+print(os.getcwd())
+#sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+#sys.path.append('../')
+from mario import Mario
+from plot import LivePlot
 
 log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
 os.makedirs(log_dir, exist_ok=True)
@@ -45,15 +50,15 @@ def print_info():
 
 
 
-def train():
+def train(env,device):
     alpha = 1e-5
     gamma = 0.99
-    agent = Agent(lr_rate=alpha,n_actions=5,gamma=gamma)
+    n_actions = env.action_num
+    agent = Agent(input_shape=env.observation_space.shape,lr_rate=alpha,n_actions=n_actions,gamma=gamma)
 
     n_epochs = 10000
-    plotter = LivePlot()
+    plotter = LivePlot()   
     
-
     stats = {"Returns":[],"Loss": [],"AverageLoss": []}
     for epoch in range(1,n_epochs+1):
 
@@ -75,6 +80,7 @@ def train():
             ep_return += reward
 
             state = next_state
+            print(f"im here {game_steps}")
         
         stats["Returns"].append(ep_return)
         stats["Loss"].append(ep_loss)
@@ -107,11 +113,15 @@ def train():
 
 
 if __name__ == "__main__":
-    env = gym.make("CartPole-v0")
     
     testing = False
+    os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
+
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    env = Mario(device=device)
 
     if(testing):
         pass
     else:
-        train()
+        train(env=env,device=device)
