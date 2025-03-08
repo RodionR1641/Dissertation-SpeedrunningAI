@@ -372,7 +372,6 @@ class Agent:
                     loss.backward()
                     ep_loss += loss.item()
                     self.optimizer.step()
-                    print("In here btw")
                     self.decay_epsilon() #decay epsilon at each step in environment
 
                 state = next_state #did the training, now move on with next state
