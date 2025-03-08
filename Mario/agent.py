@@ -14,6 +14,7 @@ from torchrl.data.replay_buffers import TensorDictReplayBuffer
 from torchrl.data.replay_buffers.storages import LazyMemmapStorage
 from model import MarioNet
 from model_mobile_vit import MarioNet_ViT
+from collections import deque
 
 log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
 os.makedirs(log_dir, exist_ok=True)
@@ -46,6 +47,98 @@ def print_info():
     else:
         logging.info("cuda not available")
 
+#a similar buffer memory, but it prioritises experiences that have a higher error
+class PrioritisedMemory:
+    def __init__(self,capacity,device="cpu",alpha=0.6,beta=0.4,beta_increment=0.001):
+        self.capacity = capacity
+        self.alpha = alpha
+        self.beta = beta
+        self.beta_increment = beta_increment
+        self.pos = 0 
+        self.memory = []
+        self.priorities = np.zeros((capacity,) , dtype=np.float32)
+        self.max_priorities = 1.0
+
+        self.sum_tree = PrioritisedMemory.SumTree()
+
+    
+    class SumTree:
+        def __init__(self,capacity):
+            self.capacity = capacity
+            self.tree = np.zeros(2 * capacity - 1, dtype=np.float32)  # Binary tree structure
+            self.data_pointer = 0
+        
+        #adding priority to a tree
+        def add(self,priority):
+            tree_idx = self.data_pointer + self.capacity - 1
+            self.update(tree_idx,priority)
+            self.data_pointer += 1
+            if self.data_pointer >= self.capacity:
+                self.data_pointer = 0
+        
+        #update a specific node and propagate the change 
+        def update(self, tree_idx, priority):
+            change = priority - self.tree[tree_idx]
+
+#using a new buffer because deque is better anyway, can make a non priority version of this
+class ReplayBufferPriority:
+    def __init__(self,capacity,device="cpu"):
+        self.memory = deque(maxlen=capacity)
+        self.priorities = deque(maxlen=capacity)
+        self.device = device
+
+    def add(self,transition):
+        transition = self.get_to_cpu(transition)#make sure the tensors are stored on cpu
+        self.buffer.append(transition)
+        self.priorities.append(max(self.priorities,default=1)) #give new experience a maximum prioritity in the buffer so high chance of selection
+    
+    def get_probabilities(self, priority_scale):
+        scaled_priorities = np.array(self.priorities) ** priority_scale #scale the priorities by ^ priority scale
+        sample_probabilities = scaled_priorities / sum(scaled_priorities) #divide each scaled priority by sum of priorities 
+        return sample_probabilities
+
+    #apply the equation 1/buf_len * 1/prob as was done in paper
+    def get_importance(self,probabilites):
+        importance = 1/len(self.buffer) * 1/probabilites
+        importance_norm = importance / max(importance) # normalise between 0 and 1 to keep the update step size bounded
+        return importance_norm
+
+    def sample(self,batch_size,priority_scale=1.0):
+        assert self.can_sample(batch_size)
+
+        sample_probs = self.get_probabilities(priority_scale)
+        sample_indices = random.choices(range(len(self.buffer)), k=batch_size, weights=sample_probs) #get the indices of memory based on priority 
+        samples = np.array(self.memory)[sample_indices]
+        importance = self.get_importance(sample_probs[sample_indices]) #get the importance of our probabiliteis that we sampled
+
+        #make sure they are back on device for training
+
+        #get a list of lists which is tranisition = map(list, zip(*samples)). then make sure that every tensor there is on device
+        #verify this
+        transitions = [[tensor.to(self.device) for tensor in transition] for transition in map(list, zip(*samples))]
+
+        return transitions, importance, sample_indices# get a list of each column and the importance
+
+    # see if we can sample from memory given a batch size, so have enough memory to sample
+    def can_sample(self,batch_size):
+        #need enough varied data to sample, as we sample random data
+        return len(self.memory) >= batch_size * 10
+    
+    #make sure every item of transition is a tensor and is stored on the cpu as it has more ram
+    def get_to_cpu(self,transition):
+        #divide by 255 to normalise the image values between 0 and 1
+        transition[0] = torch.tensor(np.array(transition[0]), dtype=torch.float32,device="cpu") / 255.0 #state
+        transition[1] = torch.tensor(transition[1],device="cpu") #action
+        transition[2] = torch.tensor(np.array(transition[3]), dtype=torch.float32,device="cpu") / 255.0#next_state
+        transition[3] = torch.tensor(transition[2],device="cpu") #reward
+        transition[4] = torch.tensor(transition[4],device="cpu") #done
+        return transition
+
+    def set_priorities(self,indices,errors, offset=0.1):
+        for i,e in zip(indices,errors): #loop through each index and error
+            self.priorities[i] = abs(e) + offset #set the priority to the absolute value of the error. Offset to make sure
+            # that priority is never 0
+        
 #agent's memory
 # The way deep q learning works: 
 # build a buffer over time of all of the state-action pairs it played
@@ -61,11 +154,7 @@ class ReplayMemory:
         self.position = 0
         self.device = device
         self.memory_max_report = 0
-
-    #TODO: can implement a Prioritised Sampling -> sample more important experiences to learn from. Given a probability score
-    # transitions where agent made a lot of errors are important, e.g. high temporal difference. These experiences indicate stuff
-    # the model struggles with, so we can learn faster and better
-
+        self.priority_mem = PrioritisedMemory(self.capacity)
 
     #need to make sure memory doesnt go over a certain size
     #transition is the data unit at play, tuple of state,action,reward,next state,done. It is an experience of the game at certain time
@@ -89,10 +178,10 @@ class ReplayMemory:
             self.memory.append(transition)
     
     # sample the memory now, using a batch size 
-    def sample(self,batch_size=32):
+    def sample(self,batch_size=32,priority_scale=1.0):
         assert self.can_sample(batch_size)
-
-
+        
+        
         indices = torch.randperm(len(self.memory))[:batch_size] #make sure we have unique indices
         #make sure they are back on device
         batch = [self.memory[i] for i in indices]
@@ -103,9 +192,13 @@ class ReplayMemory:
         batch_dones = torch.stack([b[4] for b in batch]).to(self.device)  # Shape: [batch_size]
 
         return batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones
+        
 
+        sample_probs = self.priority_mem.get_probabilities(priority_scale)
+        sample_indices = random.choices(range(len(self.memory)),k=batch_size,weights=sample_probs) #get the indicices of our probablities by priority
+        samples = np.array(self.memory)[sample_indices]
 
-        batch = random.sample(self.memory,batch_size) # take a random sample of transitions
+        #batch = random.sample(self.memory,batch_size) # take a random sample of transitions
         batch = zip(*batch) #basically make columns out of rows. We get transitions as tuples of (state,action .....)
         #so we then make lists of columns of state,action ...
         return [torch.cat(items).to(self.device) for items in batch] # convert each list of components
@@ -174,7 +267,7 @@ class Agent:
         self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
         self.loss = torch.nn.MSELoss()
         
-        self.memory = ReplayMemory(memory_capacity,device=self.device)
+        self.memory = ReplayBufferPriority(memory_capacity,self.device)
         
         logging.info(f"starting, device={device}")
         print_info()
@@ -211,12 +304,6 @@ class Agent:
                                             #"td_error":torch.tensor(td_error,dtype=torch.float32)
                                           }, batch_size=[]))
 
-    #adjust the priorities in the buffer
-    def update_priorities(self,indices, td_errors):
-        priorities = (td_errors + 1e-5).pow(self.alpha)  # Ensure nonzero priority with epsilon, the alpha control how much priorities matter
-        # if alpha 0 -> all experiences sampled uniformly, if alpha = 1 -> experiences sample fully by priority
-        self.replay_buffer.update_priority(indices, priorities)
-
     def decay_epsilon(self):
         # TODO: can do exponential, but good enough
         self.epsilon = max(self.epsilon * self.epsilon_decay, self.min_epsilon)
@@ -246,7 +333,7 @@ class Agent:
                 self.game_steps += 1
                 next_state,reward,done,info = env.step(action)
                 #order of list matters
-                self.memory.insert([state, action, reward, next_state, done])
+                self.memory.add((state,action,next_state,reward,done))
 
                 #actual training part
                 #can take out of memory only if sufficient size
@@ -256,7 +343,7 @@ class Agent:
 
                     self.sync_networks()
 
-                    states, actions, rewards, next_states, dones = self.memory.sample(self.batch_size)
+                    (states,actions,next_states,rewards,dones), importance, sample_indices = self.memory.sample(self.batch_size)                   
 
                     qsa_b = self.model(states)  # Shape: (batch_size, n_actions) as network estimates q value for all actions. so have rows of q values for each action
                     qsa_b = qsa_b[np.arange(self.batch_size), actions.squeeze()] #action contains the actual actions taken, remove extra batch dimension via squeeze
@@ -274,8 +361,14 @@ class Agent:
                     target_b = (rewards + self.gamma * next_qsa_b * (1 - dones.float()) ).detach() #1-dones.float() -> stop propagating when finished episode
                     
                     #indices = samples["index"]
+                    #use epsilon value for exponent b -> as epsilon decreases the b value gets larger
+                    loss = self.compute_loss(qsa_b,target_b,importance_weights=importance**(1-self.epsilon))
 
-                    loss = self.loss(qsa_b,target_b)
+                    with torch.no_grad():
+                        td_errors = (qsa_b - target_b).abs().numpy()
+
+                    self.memory.set_priorities(sample_indices,td_errors)
+
                     loss.backward()
                     ep_loss += loss.item()
                     self.optimizer.step()
@@ -319,6 +412,13 @@ class Agent:
             
         return stats
     
+    def compute_loss(self,q_values, q_targets, importance_weights):
+        
+        # Compute the loss with importance sampling weights
+        loss = self.loss(q_values, q_targets)
+        weighted_loss = importance_weights * loss
+        
+        return weighted_loss.mean()
 
     #run something on the machine, and see how we perform
     def test(self, env):
