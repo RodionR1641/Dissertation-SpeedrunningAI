@@ -52,7 +52,7 @@ class ActorCritic(nn.Module):
         critic_value = self.relu(self.critic_value2(critic_value))
         critic_value = self.critic_value3(critic_value)
 
-        return actor_pi,critic_value
+        return critic_value, actor_pi #return state value and probabilities
 
     #calculate returns from sequence of steps
     # calculation is like: R = V(t3) ..... ->  R = r3 + gamma * r2 + gamma^2 * r1
