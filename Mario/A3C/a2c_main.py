@@ -11,6 +11,9 @@ import random
 import torch
 import sys
 import time
+from stable_baselines3.common.vec_env import SubprocVecEnv
+from gym.vector import SyncVectorEnv
+import cProfile
 
 print(os.getcwd())
 #sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -51,12 +54,18 @@ def print_info():
         logging.info("cuda not available")
 
 
+def make_env(device,seed=None):
+    def one_env():
+        env = Mario(device=device)
+        return env    
+    return one_env
 
-def train(env,device):
+
+def train(env,device,num_envs=1):
     alpha = 1e-5
     gamma = 0.99
-    n_actions = env.action_num
-    agent = Agent(input_shape=env.observation_space.shape,lr_rate=alpha,n_actions=n_actions,gamma=gamma)
+    n_actions = env.envs[0].action_num
+    agent = Agent(input_shape=env.envs[0].observation_space.shape,lr_rate=alpha,n_actions=n_actions,gamma=gamma)
 
     n_epochs = 10000
     plotter = LivePlot()   
@@ -64,36 +73,45 @@ def train(env,device):
     stats = {"Returns":[],"Loss": [],"AverageLoss": []}
     for epoch in range(1,n_epochs+1):
 
-        state = env.reset()
-        done = False
-        ep_return = 0
-        ep_loss = 0
+        states = env.reset()
+        dones = [False] * num_envs
+        ep_returns = [0] * num_envs
+        ep_losses = [0] * num_envs
         game_steps = 0
         
-        while not done:
+        while not all(dones):
             #make a state tensor here instead of doing it twice in choose action and learn method
-            state = torch.as_tensor(np.array(state), dtype=torch.float32).unsqueeze(0)
+            start_time_all = time.time()
+            states = torch.as_tensor(states, dtype=torch.float32)
             
-            action = agent.choose_action(state)
+            action = agent.choose_action(states)
 
-            next_state,reward,done,info = env.step(action)
+            start_step = time.time()
+            next_states,rewards,dones,info = env.step(action)
+            end_step = time.time() - start_step
+            #print(f"env step took {end_step}")
             game_steps += 1
 
             start_time = time.time()
-            loss = agent.learn(state,reward,next_state,done)
+            loss = agent.learn(states,rewards,next_states,dones)
             end_time = time.time()
-            #print(f"Inefficient approach took {end_time - start_time:.6f} seconds")
+            #print(f"learn approach took {end_time - start_time:.6f} seconds")
 
-            ep_loss += loss    
-            ep_return += reward
+            for i in range(num_envs):
+                #ep_losses[i] += loss    
+                ep_returns[i] += rewards[i]
 
-            state = next_state
-            print(f"im here {game_steps}, ep return is {ep_return}")
+            #env.envs[0].render()
+            states = next_states
+            end_time_all = time.time() - start_time_all
+            #print(f"whole thing took {end_time_all}")
+            if(game_steps % 100 == 0):
+                print(f"im here {game_steps}")
         
-        stats["Returns"].append(ep_return)
-        stats["Loss"].append(ep_loss)
+        stats["Returns"].extend(ep_returns)
+        #stats["Loss"].append(ep_loss)
         
-        print("Total loss = "+str(ep_loss))
+        #print("Total loss = "+str(ep_loss))
         print("Time Steps = "+str(game_steps))
 
         if epoch % 10 == 0:
@@ -120,16 +138,21 @@ def train(env,device):
     # can plot stuff here
 
 
-if __name__ == "__main__":
+def main():
     
     testing = False
     os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    env = Mario(device=device)
+    #env = Mario(device=device)
+    num_envs = 8
+    env = SyncVectorEnv([make_env(device=device) for _ in range(num_envs)])
 
     if(testing):
         pass
     else:
         train(env=env,device=device)
+
+main()
+#cProfile.run('main()', sort='cumtime')

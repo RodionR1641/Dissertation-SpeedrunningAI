@@ -328,10 +328,14 @@ class Agent:
             ep_loss = 0
 
             while not done:
+                start_whole = time.time()
                 action = self.get_action(state)
 
                 self.game_steps += 1
+                start_step = time.time()
                 next_state,reward,done,info = env.step(action)
+                end_step = time.time() - start_step
+                print(f"step took {end_step}")
                 #order of list matters
                 self.memory.add((state,action,next_state,reward,done))
 
@@ -376,6 +380,8 @@ class Agent:
 
                 state = next_state #did the training, now move on with next state
                 ep_return += reward
+                end_whole = time.time() - start_whole
+                print(f"whole took {end_whole}")
                 #print(f"Got here, episode return={ep_return}, time step = {self.game_steps}")
 
             stats["Returns"].append(ep_return)
