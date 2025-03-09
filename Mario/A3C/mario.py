@@ -35,7 +35,7 @@ class Mario(gym.Wrapper):
         
         # skip 4 frames by default, repeat agents actions for those frames. Done for efficiency. Take the max pixel values over last 2 frames
         
-        #env = MaxAndSkipEnv(env=env,skip=4)
+        env = MaxAndSkipEnv(env=env,skip=4)
         # wrapper treats every end of life as end of that episode. So, if any life is lost episode ends. But reset is called only if lives are exhausted
         
         #env = EpisodicLifeEnv(env=env) # this one might not work as it expects ale, and others also expect terminated as part of "step" function. Can rewrite the wrapper though
