@@ -1,14 +1,14 @@
 import torch
 import os
 import keyboard
-from agent import Agent
+from agent_no_prioritised import Agent
 from mario import DQN_Mario
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-use_vit = True
+use_vit = False
 
 environment = DQN_Mario(device=device,use_vit=use_vit)
 

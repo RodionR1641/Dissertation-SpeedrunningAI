@@ -3,6 +3,8 @@ import torch
 from a2c_model import ActorCritic
 from torch.distributions import Categorical # taking probability from network and map it to distribution for us
 import torch.optim as optim
+import time
+import numpy as np
 
 class Agent:
     def __init__(self,input_shape,lr_rate=1e-5,device="cpu", gamma=0.99, n_actions=5):
@@ -15,10 +17,13 @@ class Agent:
         self.optimiser = optim.AdamW(self.actor_critic.parameters(), lr=self.lr_rate)
 
     
-    def choose_action(self,observation):
-
-        state = torch.tensor(observation,dtype=torch.float).unsqueeze(0) #add a batch dimension to it for neural network to work on it
-        pi, v= self.actor_critic(state) #dont need value, just actor actions
+    def choose_action(self,state):
+        
+        #state = torch.tensor(observation,dtype=torch.float).unsqueeze(0) #add a batch dimension to it for neural network to work on it
+        
+        with torch.no_grad():
+            pi, v= self.actor_critic(state) #dont need value, just actor actions
+        
         probs = torch.softmax(pi,dim=1) #get the softmax activation, for probability distribution
 
         dist = Categorical(probs) #feed into categorical distribution
@@ -38,9 +43,8 @@ class Agent:
     #functionality to learn
 
     def learn(self,state,reward, next_state, done):
-        state = torch.tensor([state], dtype=torch.float32)
-        next_state = torch.tensor([next_state], dtype=torch.float32)
-        reward = torch.tensor(reward, dtype=torch.float32) #this one isnt fed into NN so dont need it to be [] batch dimension
+        next_state = torch.as_tensor(np.array(next_state), dtype=torch.float32).unsqueeze(0)
+        reward = torch.as_tensor(reward, dtype=torch.float32) #this one isnt fed into NN so dont need it to be [] batch dimension
 
         #calculate gradients here
 

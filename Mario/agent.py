@@ -376,7 +376,7 @@ class Agent:
 
                 state = next_state #did the training, now move on with next state
                 ep_return += reward
-                print(f"Got here, episode return={ep_return}, time step = {self.game_steps}")
+                #print(f"Got here, episode return={ep_return}, time step = {self.game_steps}")
 
             stats["Returns"].append(ep_return)
             stats["Loss"].append(ep_loss)

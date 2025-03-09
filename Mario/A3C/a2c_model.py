@@ -54,6 +54,34 @@ class ActorCritic(nn.Module):
 
         return critic_value, actor_pi #return state value and probabilities
 
+    def get_flat_size(self,input_shape):
+
+        with torch.no_grad():#no gradient computation, just a dummy pass
+            dummy_input = torch.zeros(1,*input_shape)
+            x = self.conv1(dummy_input)
+            x = self.conv2(x)
+            x = self.conv3(x)
+            return self.flatten(x).shape[1] #get number of features after flattening
+        
+
+    def save_model(self,weights_filename="models/a2c_latest.pt"):
+        #state_dict() -> dictionary of the states/weights in a given model
+        # we override nn.Module, so this can be done
+        print("...saving checkpoint...")
+        if not os.path.exists("models"):
+            os.mkdir("models")
+        torch.save(self.state_dict(),weights_filename)
+    
+    def load_model(self, weights_filename="models/a2c_latest.pt",device="cpu"):
+        try:
+            self.load_state_dict(torch.load(weights_filename,map_location=device,weights_only=True))
+            print(f"Loaded weights filename: {weights_filename}")            
+        except Exception as e:
+            print(f"No weights filename: {weights_filename}")
+            print(f"Error: {e}")
+    
+
+
     #calculate returns from sequence of steps
     # calculation is like: R = V(t3) ..... ->  R = r3 + gamma * r2 + gamma^2 * r1
     def calc_return(self,done):
@@ -107,31 +135,3 @@ class ActorCritic(nn.Module):
         action = dist.sample().numpy()[0] #numpy quantity, take the 0th element
 
         return action
-    
-
-    def get_flat_size(self,input_shape):
-
-        with torch.no_grad():#no gradient computation, just a dummy pass
-            dummy_input = torch.zeros(1,*input_shape)
-            x = self.conv1(dummy_input)
-            x = self.conv2(x)
-            x = self.conv3(x)
-            return self.flatten(x).shape[1] #get number of features after flattening
-        
-
-    def save_model(self,weights_filename="models/a2c_latest.pt"):
-        #state_dict() -> dictionary of the states/weights in a given model
-        # we override nn.Module, so this can be done
-        print("...saving checkpoint...")
-        if not os.path.exists("models"):
-            os.mkdir("models")
-        torch.save(self.state_dict(),weights_filename)
-    
-    def load_model(self, weights_filename="models/a2c_latest.pt",device="cpu"):
-        try:
-            self.load_state_dict(torch.load(weights_filename,map_location=device,weights_only=True))
-            print(f"Loaded weights filename: {weights_filename}")            
-        except Exception as e:
-            print(f"No weights filename: {weights_filename}")
-            print(f"Error: {e}")
-    
