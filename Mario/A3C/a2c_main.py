@@ -10,6 +10,8 @@ import datetime
 import random
 import torch
 import sys
+import time
+
 print(os.getcwd())
 #sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -69,18 +71,24 @@ def train(env,device):
         game_steps = 0
         
         while not done:
+            #make a state tensor here instead of doing it twice in choose action and learn method
+            state = torch.as_tensor(np.array(state), dtype=torch.float32).unsqueeze(0)
+            
             action = agent.choose_action(state)
 
             next_state,reward,done,info = env.step(action)
             game_steps += 1
 
+            start_time = time.time()
             loss = agent.learn(state,reward,next_state,done)
+            end_time = time.time()
+            #print(f"Inefficient approach took {end_time - start_time:.6f} seconds")
 
             ep_loss += loss    
             ep_return += reward
 
             state = next_state
-            print(f"im here {game_steps}")
+            print(f"im here {game_steps}, ep return is {ep_return}")
         
         stats["Returns"].append(ep_return)
         stats["Loss"].append(ep_loss)
