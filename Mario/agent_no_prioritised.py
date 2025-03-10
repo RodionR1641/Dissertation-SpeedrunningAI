@@ -115,7 +115,7 @@ class ReplayMemory:
     # see if we can sample from memory given a batch size, so have enough memory to sample
     def can_sample(self,batch_size):
         #need enough varied data to sample, as we sample random data
-        return len(self.memory) >= batch_size * 10
+        return len(self.memory) >= (batch_size * 10)
 
     #why do we need a len object? -> we need to make sure we get the number of items in memory rather than some object output
     #other objects can call the len function of this class, but get what we actually want which is len(self.memory) rather than e.g. len(self)
@@ -248,7 +248,7 @@ class Agent:
                 start_step = time.time()
                 next_state,reward,done,info = env.step(action)
                 end_step = time.time() - start_step
-                print(f"step took {end_step}")
+                #print(f"step took {end_step}")
                 #order of list matters
                 self.memory.insert([state, action, reward, next_state, done])
 
@@ -270,12 +270,12 @@ class Agent:
                     # target network to evaluate
                     best_next_actions = self.model(next_states).argmax(dim=1) #get the best action using max of dim=1(which are the actions). argmax return indices
                     #this feeds the next_states into target_model and then selects its own values of the actions that online model chose
-                    next_qsa_b = self.target_model(next_states)[np.arange(self.batch_size),best_next_actions]
+                    next_qsa_b = self.target_model(next_states).detach()[np.arange(self.batch_size),best_next_actions]
                     
                     # dqn = r + gamma * max Q(s,a)
                     # ddqn = r + gamma * online_network(s',argmax target_network_Q(s',a'))
                     #detach -> important as we dont want to back propagate on target network
-                    target_b = (rewards + self.gamma * next_qsa_b * (1 - dones.float()) ).detach() #1-dones.float() -> stop propagating when finished episode
+                    target_b = (rewards + self.gamma * next_qsa_b * (1 - dones.float()) ) #1-dones.float() -> stop propagating when finished episode
                     
                     #indices = samples["index"]
 
@@ -288,7 +288,7 @@ class Agent:
                 state = next_state #did the training, now move on with next state
                 ep_return += reward
                 end_whole = time.time() - start_whole
-                print(f"whole took {end_whole}")
+                #print(f"whole took {end_whole}")
                 #print(f"Got here now, episode return={ep_return}, time step = {self.game_steps}")
 
             stats["Returns"].append(ep_return)
