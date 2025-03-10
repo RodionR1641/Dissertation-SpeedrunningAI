@@ -1,8 +1,8 @@
 import random
 import numpy as np
 
-from agent import Agent
-from mario import DQN_Mario
+from Mario.DQN.Rainbow.agent import Agent
+from Mario.DQN.mario import DQN_Mario
 
 # using a genetic algorithm to see what 
 # also checking CNN vs ViT here as a bonus

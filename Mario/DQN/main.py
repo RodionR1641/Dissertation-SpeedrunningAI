@@ -1,8 +1,8 @@
 import torch
 import os
 import keyboard
-from agent_no_prioritised import Agent
-from mario import DQN_Mario
+from Mario.DQN.agent_no_prioritised import Agent
+from Mario.DQN.mario import DQN_Mario
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
 

@@ -3,10 +3,10 @@ from PIL import Image
 import numpy as np
 import gym
 import os
-from Mario.mario import *
+from Mario.DQN.mario import *
 import keyboard
-from model import AtariNet
-from agent import Agent
+from Mario.DQN.model import AtariNet
+from Mario.DQN.Rainbow.agent import Agent
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
 
