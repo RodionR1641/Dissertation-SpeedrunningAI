@@ -1,6 +1,8 @@
 import os
 import torch
 import torch.nn as nn
+import math
+import torch.nn.functional as F
 
 #takes care of neural network,
 class MarioNet(nn.Module):
@@ -15,44 +17,32 @@ class MarioNet(nn.Module):
 
         #input_shape[0] tells the C number of channels in C,H,W input shape
         self.conv1 = nn.Conv2d(input_shape[0],32,kernel_size=(8,8),stride=(4,4))
-        #arguments -> number of channels(1 for grayscale),number of channels out,kernel size, stride
-        #each layer shrinks image, pull more info out of the image and store this info in kernel layers(weights)
-        #since conv1 gives 32 channels out(filters we use), the next one has to take 32 in
         self.conv2 = nn.Conv2d(32,64,kernel_size=(4,4),stride=(2,2))
         #in each layer, the image size shrinks so use smaller filter size
         self.conv3 = nn.Conv2d(64,64,kernel_size=(3,3),stride=(1,1))
 
         #flattening layer before they go into the fully connected layer
         self.flatten = nn.Flatten()
-
-        # randomly drop out certain number of weights in a network as you pass through it
-        # a way to add randomness and stop network getting stuck in the "valleys"(flat solution space) without finding best solution
-        self.dropout = nn.Dropout(p=0.2) #0.2 chance of dropping out for each layer we apply it to
-
-        #fully connected layers now
         
         flat_size = self.get_flat_size(input_shape)
         print("flattened size = "+str(flat_size))
         
         #value of the image state
         self.action_value1 = nn.Linear(flat_size,1024) # 1024 neurons we use in fully connected layer
-        #want more of these hidden layers
-        self.action_value2 = nn.Linear(1024,1024)
-        self.action_value3 = nn.Linear(1024,nb_actions) # nb_actions output -> probability of actions selected
+        self.action_value2 = NoisyLinear(1024,1024)
+        self.action_value3 = NoisyLinear(1024,nb_actions) # nb_actions output -> probability of actions selected
 
         #now do similar for State value
         self.state_value1 = nn.Linear(flat_size,1024)
-        self.state_value2 = nn.Linear(1024,1024)
-        self.state_value3 = nn.Linear(1024,1) # single value output, tells us if given state is valuable to the agent
+        self.state_value2 = NoisyLinear(1024,1024)
+        self.state_value3 = NoisyLinear(1024,1) # single value output, tells us if given state is valuable to the agent
 
         self.device = device
         self.to(self.device)
     #function that gets called when network is being called
     #x is input to the network
     def forward(self,x):
-        #passing through the layers, starting with the raw image data
 
-        #x = torch.Tensor(x) #casting, make data in tensor format(the image)
         x.to(self.device)
         #relu used after conv layers(their output). 
         x = self.relu(self.conv1(x)) # relu takes value, anything under 0 gets nullified. Add non linearity
@@ -64,29 +54,15 @@ class MarioNet(nn.Module):
         # the state_value1,state_value2 etc actually learns the necessary parameters
         # basically get output from these layers, 
         state_value = self.relu(self.state_value1(x))
-        
-        #removing dropout - Not that useful for RL anyway, Rl usually has no problem with overfitting but stability and convergence
-        #state_value = self.dropout(state_value)
         state_value = self.relu(self.state_value2(state_value))
-        #state_value = self.dropout(state_value)
         state_value = self.state_value3(state_value) #no relu
-        #no dropout in the end. It is used to avoid overfitting, but dont want it in final prediction. If we get e.g one/4 value
-        #, dont want it to be dropped 0.2 percent of the time. not useful for learning
 
         action_value = self.relu(self.action_value1(x))
-        #action_value = self.dropout(action_value)
         action_value = self.relu(self.action_value2(action_value))
-        #action_value = self.dropout(action_value)
         action_value = self.action_value3(action_value) #dont have relu on last layer as dont want to limit
         #to only negative actions
         
-        #action_value is array of values, we will be selecting the highest of them
-        # so substract action_value mean from action_value array so we get a representation of the value of the choices 
-        # substract from mean -> can tell how useful an action is compared to the rest
-        # if we did just state_value + action_value -> we overrepresent the state_value as we add it to the total action_values
-        # and not what differentiates the action_values
         output = state_value + (action_value - action_value.mean())
-        #output = state_value + (action_value - action_value.mean(dim=1, keepdim=True))
         return output
     
     #pass dummy input through conv layers to get flatten size dynamically
@@ -98,6 +74,14 @@ class MarioNet(nn.Module):
             x = self.conv2(x)
             x = self.conv3(x)
             return self.flatten(x).shape[1] #get number of features after flattening
+    
+    #Reset all noisy layers
+    def reset_noise(self):
+        self.action_value2.reset_noise()
+        self.action_value3.reset_noise()
+
+        self.state_value2.reset_noise()
+        self.state_value3.reset_noise() 
 
     #these models take a while to train, want to save it and reload on start
     #use pt format
@@ -117,3 +101,78 @@ class MarioNet(nn.Module):
             print(f"No weights filename: {weights_filename}")
             print(f"Error: {e}")
     
+
+
+
+
+class NoisyLinear(nn.Module):
+    """Noisy linear module for NoisyNet.
+    
+    Attributes:
+        in_features (int): input size of linear module
+        out_features (int): output size of linear module
+        std_init (float): initial std value
+        weight_mu (nn.Parameter): mean value weight parameter
+        weight_sigma (nn.Parameter): std value weight parameter
+        bias_mu (nn.Parameter): mean value bias parameter
+        bias_sigma (nn.Parameter): std value bias parameter
+        
+    """
+    def __init__(self, in_features,out_features,std_init=0.5):
+        super().__init__()
+
+        self.in_features = in_features
+        self.out_features = out_features
+        self.std_init = std_init
+
+        self.weight_mu = nn.Parameter(torch.Tensor(out_features,in_features))
+        self.weight_sigma = nn.Parameter(torch.Tensor(out_features,in_features))
+
+        self.register_buffer("weight_epsilon", torch.Tensor(out_features,in_features))
+
+        self.bias_mu = nn.Parameter(torch.Tensor(out_features))
+        self.bias_sigma = nn.Parameter(torch.Tensor(out_features))
+        self.register_buffer("bias_epsilon", torch.Tensor(out_features))
+
+        self.reset_parameters()
+        self.reset_noise()
+
+    def reset_parameters(self):
+        """Reset trainable network parameters (factorized gaussian noise)."""
+        mu_range = 1 / math.sqrt(self.in_features)
+        self.weight_mu.data.uniform_(-mu_range, mu_range)
+        self.weight_sigma.data.fill_(
+            self.std_init / math.sqrt(self.in_features)
+        )
+        self.bias_mu.data.uniform_(-mu_range, mu_range)
+        self.bias_sigma.data.fill_(
+            self.std_init / math.sqrt(self.out_features)
+        )
+
+    def reset_noise(self):
+        """Make new noise."""
+        epsilon_in = self.scale_noise(self.in_features)
+        epsilon_out = self.scale_noise(self.out_features)
+
+        # outer product
+        self.weight_epsilon.copy_(epsilon_out.ger(epsilon_in))
+        self.bias_epsilon.copy_(epsilon_out)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward method implementation.
+        
+        We don't use separate statements on train / eval mode.
+        It doesn't show remarkable difference of performance.
+        """
+        return F.linear(
+            x,
+            self.weight_mu + self.weight_sigma * self.weight_epsilon,
+            self.bias_mu + self.bias_sigma * self.bias_epsilon,
+        )
+    
+    @staticmethod
+    def scale_noise(size: int) -> torch.Tensor:
+        """Set scale to make noise (factorized gaussian noise)."""
+        x = torch.randn(size)
+
+        return x.sign().mul(x.abs().sqrt())
