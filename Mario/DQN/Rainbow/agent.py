@@ -3,7 +3,7 @@ import torch
 import copy
 import torch.optim as optim
 import torch.nn.functional as F
-from Mario.DQN.plot import LivePlot
+from plot import LivePlot
 import numpy as np
 import time
 import os
@@ -12,10 +12,10 @@ import datetime
 from tensordict import TensorDict
 from torchrl.data.replay_buffers import TensorDictReplayBuffer
 from torchrl.data.replay_buffers.storages import LazyMemmapStorage
-from Mario.DQN.model import MarioNet
+from Rainbow.rainbow_model import MarioNet
 from model_mobile_vit import MarioNet_ViT
 from collections import deque
-from Mario.DQN.segment_tree import MinSegmentTree, SumSegmentTree
+from segment_tree import MinSegmentTree, SumSegmentTree
 
 log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
 os.makedirs(log_dir, exist_ok=True)
@@ -207,7 +207,7 @@ class Agent:
     #batch_size
     #learning_rate -> how big of a step we want the agent to take at a time, how quickly we want it to learn. If its too high, jump erradically from solution to solution
     #rather than slowly building to a right solution. Want it to be high enough to pick up changes though, but too high it wont learn well
-    def __init__(self,input_dims,device="cpu",epsilon=1.0,min_epsilon=0.1,beta=0.6,prior_eps=1e-6
+    def __init__(self,input_dims,device="cpu",beta=0.6,prior_eps=1e-6
                  ,nb_warmup=250_000,nb_actions=5,memory_capacity=100_000,
                  batch_size=32,learning_rate=0.00020,gamma=0.95,sync_network_rate=10_000,use_vit=False):
         
@@ -232,13 +232,8 @@ class Agent:
         self.learning_rate = learning_rate
         self.nb_warmup = nb_warmup
         self.gamma = gamma #how much we discount future rewards compared to immediate rewards
-        self.epsilon = epsilon
-        self.min_epsilon = min_epsilon
-
-        #self.epsilon_lambda = np.log(1/min_epsilon) / nb_warmup # this is the epsilon decay rate
 
         #update epsilon at every time step instead now
-        self.epsilon_decay = 0.99999975#1- (((epsilon - min_epsilon) / nb_warmup) *2) # linear decay rate, close to the nb_warmup steps count
         self.batch_size = batch_size
         self.sync_network_rate = sync_network_rate
         self.game_steps = 0 #track how many steps taken over entire training
@@ -254,41 +249,15 @@ class Agent:
         logging.info(f"starting, device={device}")
         print_info()
 
-    #state is image of our environment
+    #Noisy net way and not epsilon greedy, so just pick the action
     def get_action(self,state,test=False):
-
-        #only use random action if its training
-        if (torch.rand(1) < self.epsilon) and not test: #if a random number between 0 and 1 is smaller than epsilon, do random move
-            #randint returns a tensor
-            return np.random.randint(self.nb_actions) #random action
-        else:
-
-            #convert state into np_array for calculations, then make a tensor, then unsqueese to add batch dimension
-            state = torch.tensor(np.array(state), dtype=torch.float32) \
-                        .unsqueeze(0) \
-                        .to(self.model.device)
-            #use advantage function to calculate max action
-            return self.model(state).argmax().item()
-
-    def store_memory(self,state,action,reward,next_state,done):
-        """
-        if td_error is None:
-            #give a high td_err as at start probably bad, also making it uniform until fill up buffer
-            td_error = torch.tensor(1.0, dtype=torch.float32)
-        """
-
-        self.replay_buffer.add(TensorDict({
-                                            "state": torch.tensor(np.array(state), dtype=torch.float32,device="cpu"), 
-                                            "action": torch.tensor(action,device="cpu"),
-                                            "reward": torch.tensor(reward,device="cpu"), 
-                                            "next_state": torch.tensor(np.array(next_state), dtype=torch.float32,device="cpu"), 
-                                            "done": torch.tensor(done,device="cpu")
-                                            #"td_error":torch.tensor(td_error,dtype=torch.float32)
-                                          }, batch_size=[]))
-
-    def decay_epsilon(self):
-        # TODO: can do exponential, but good enough
-        self.epsilon = max(self.epsilon * self.epsilon_decay, self.min_epsilon)
+        
+        #convert state into np_array for calculations, then make a tensor, then unsqueese to add batch dimension
+        state = torch.tensor(np.array(state), dtype=torch.float32) \
+                    .unsqueeze(0) \
+                    .to(self.model.device)
+        #use advantage function to calculate max action
+        return self.model(state).argmax().item()
 
     def sync_networks(self):
         if self.game_steps % self.sync_network_rate == 0 and self.game_steps > 0:
@@ -299,7 +268,7 @@ class Agent:
     #epochs = how many iterations to train for
     def train(self,env, epochs):
         #see how the model is doing over time
-        stats = {"Returns":[],"Loss": [],"AverageLoss": [], "Epsilon": []} #store as dictinary of lists
+        stats = {"Returns":[],"Loss": [],"AverageLoss": [], "TimeStep": []} #store as dictinary of lists
 
         plotter = LivePlot()
 
@@ -371,17 +340,19 @@ class Agent:
                     #element_loss = self.loss(qsa_b, target_b)
                     element_loss = F.mse_loss(qsa_b, target_b, reduction="none")
                     weighted_loss = torch.mean(element_loss * weights)
-                    #loss = self.compute_loss(qsa_b,target_b,importance_weights=weights**(1-self.epsilon))
 
                     self.optimizer.zero_grad()
                     weighted_loss.backward()
                     ep_loss += weighted_loss.item()
                     self.optimizer.step()
-                    self.decay_epsilon() #decay epsilon at each step in environment
 
                     loss_for_prior = element_loss.detach().cpu().numpy()
                     new_probabilities = loss_for_prior + self.prior_eps # a small number added at the end to make sure its never 0
                     self.memory.update_priorities(indices,new_probabilities)
+
+                    # NoisyNet: reset noise
+                    self.model.reset_noise()
+                    self.target_model.reset_noise()
 
                 state = next_state #did the training, now move on with next state
                 ep_return += reward
@@ -391,6 +362,7 @@ class Agent:
 
             stats["Returns"].append(ep_return)
             stats["Loss"].append(ep_loss)
+            stats["TimeStep"].append(self.game_steps)
 
             #print("Total reward = "+str(ep_return))
             print("Total loss = "+str(ep_loss))
@@ -405,13 +377,12 @@ class Agent:
                 #graph can turn too big if we try to plot everything through. Only update a graph data point for every 10 epochs
 
                 stats["AverageLoss"].append(average_loss)
-                stats["Epsilon"].append(self.epsilon) #see where the epsilon was at. Do we see higher returns with high epsilon, or only when it dropped etc
 
                 if(len(stats["Loss"]) > 100):
-                    logging.info(f"Epoch: {epoch} - Average loss: {np.mean(stats['Loss'][-100:])}  - Epsilon: {self.epsilon} ")
+                    logging.info(f"Epoch: {epoch} - Average loss: {np.mean(stats['Loss'][-100:])}  - TimeStep: {self.game_steps} ")
                 else:
                     #for the first 100 iterations, just return the episode return,otherwise return the average like above
-                    logging.info(f"Epoch: {epoch} - Episode loss: {np.mean(stats['Loss'][-1:])}  - Epsilon: {self.epsilon} ")
+                    logging.info(f"Epoch: {epoch} - Episode loss: {np.mean(stats['Loss'][-1:])}  - TimeStep: {self.game_steps} ")
 
             if epoch % 100 == 0:
                 plotter.update_plot(stats)

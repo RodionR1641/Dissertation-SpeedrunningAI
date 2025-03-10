@@ -13,7 +13,7 @@ from tensordict import TensorDict
 from torchrl.data.replay_buffers import TensorDictReplayBuffer
 from torchrl.data.replay_buffers.storages import LazyMemmapStorage
 from Mario.DQN.model import MarioNet
-from model_mobile_vit import MarioNet_ViT
+from Mario.DQN.model_mobile_vit import MarioNet_ViT
 
 log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
 os.makedirs(log_dir, exist_ok=True)
