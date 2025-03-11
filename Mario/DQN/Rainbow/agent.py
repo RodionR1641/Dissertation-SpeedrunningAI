@@ -143,7 +143,7 @@ class PrioritisedMemory(ReplayBuffer):
     sum_tree (SumSegmentTree): sum tree for prior
     min_tree (MinSegmentTree): min tree for min prior to get max weight
     """
-    def __init__(self, input_dim,capacity,batch_size=32,n_steps=3,alpha=0.6,gamma=0.99,device="cpu"):
+    def __init__(self, input_dim,capacity,batch_size=32,n_steps=1,alpha=0.6,gamma=0.99,device="cpu"):
         assert alpha >= 0
         super(PrioritisedMemory,self).__init__(input_dim,capacity,batch_size,device,gamma=gamma,n_steps=n_steps)
 
@@ -152,19 +152,21 @@ class PrioritisedMemory(ReplayBuffer):
 
         tree_capacity = 1
         #capacity is a power of 2
-        while tree_capacity < capacity:
+        while tree_capacity < self.max_size:
             tree_capacity *= 2 
 
         self.sum_tree = SumSegmentTree(tree_capacity)
         self.min_tree = MinSegmentTree(tree_capacity)
 
     def insert(self,state,action,reward,next_state,done):
-        super().insert(state,action,reward,next_state,done)
+        transition = super().insert(state,action,reward,next_state,done)
 
-        #newly inserted get the max_priority as an initialised
-        self.sum_tree[self.tree_ptr] = self.max_priority ** self.alpha
-        self.min_tree[self.tree_ptr] = self.max_priority ** self.alpha
-        self.tree_ptr = (self.tree_ptr + 1) % self.max_size
+        if transition:
+            #newly inserted get the max_priority as an initialised
+            self.sum_tree[self.tree_ptr] = self.max_priority ** self.alpha
+            self.min_tree[self.tree_ptr] = self.max_priority ** self.alpha
+            self.tree_ptr = (self.tree_ptr + 1) % self.max_size
+        return transition
     
     def sample_batch(self,beta=0.4):
         
@@ -251,15 +253,21 @@ class Agent:
     #batch_size
     #learning_rate -> how big of a step we want the agent to take at a time, how quickly we want it to learn. If its too high, jump erradically from solution to solution
     #rather than slowly building to a right solution. Want it to be high enough to pick up changes though, but too high it wont learn well
-    def __init__(self,input_dims,device="cpu",beta=0.6,prior_eps=1e-6
-                 ,nb_warmup=250_000,nb_actions=5,memory_capacity=100_000,n_step=3,
-                 batch_size=32,learning_rate=0.00020,gamma=0.95,sync_network_rate=10_000,use_vit=False):
-        
-        if(use_vit):
-            self.model = MarioNet_ViT(nb_actions=nb_actions,device=device) #5 actions for agent can do in this game
-        else:
-            self.model = MarioNet(input_dims,nb_actions=nb_actions,device=device)
-        self.target_model = copy.deepcopy(self.model).eval() #when we work with q learning, want a model and another model we can evaluate of off. Part of Dueling deep Q
+    def __init__(self,input_dims,device="cpu",
+                 beta=0.6,
+                 prior_eps=1e-6,
+                 nb_warmup=250_000,
+                 nb_actions=5,
+                 memory_capacity=100_000,
+                 n_step=3,
+                 batch_size=32,
+                 learning_rate=0.00020,
+                 gamma=0.95,
+                 sync_network_rate=10_000,
+                 use_vit=False,
+                 v_min=0.0,
+                 v_max=200.0,
+                 atom_size=51,):
         
         """
         if os.path.exists("models"):
@@ -277,13 +285,24 @@ class Agent:
         self.nb_warmup = nb_warmup
         self.gamma = gamma #how much we discount future rewards compared to immediate rewards
 
-        #update epsilon at every time step instead now
         self.batch_size = batch_size
         self.sync_network_rate = sync_network_rate
         self.game_steps = 0 #track how many steps taken over entire training
         
         #Combines adaptive learning rates with weight decay regularisation for better generalisation
         self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
+
+        #categorical DQN parameters
+        self.v_min = v_min
+        self.v_max = v_max
+        self.atom_size = atom_size
+        self.support = torch.linspace(self.v_min,self.v_max,self.atom_size).to(self.device)
+
+        if(use_vit):
+            self.model = MarioNet_ViT(nb_actions=nb_actions,device=device) #5 actions for agent can do in this game
+        else:
+            self.model = MarioNet(input_dims,nb_actions=nb_actions,device=device)
+        self.target_model = copy.deepcopy(self.model).eval() #when we work with q learning, want a model and another model we can evaluate of off. Part of Dueling deep Q
 
         #memory for 1 step transitions  and n_step transitions
         # guarantees any paired 1 step and n_step transitions have the same indices    

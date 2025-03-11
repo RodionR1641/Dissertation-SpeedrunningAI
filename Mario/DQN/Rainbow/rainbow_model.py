@@ -10,16 +10,25 @@ class MarioNet(nn.Module):
     #setup all the methods in init and call in forward method
 
     #pass number of actions network can take for flexibility
-    def __init__(self,input_shape,device="cpu",nb_actions=5):
+    def __init__(self,input_shape,support,out_dim,atom_size,device="cpu",nb_actions=5):
         super(MarioNet,self).__init__()
+
+        #Categorical DQN
+        self.support = support
+        self.out_dim = out_dim
+        self.atom_size = atom_size
 
         self.relu = nn.ReLU()
 
-        #input_shape[0] tells the C number of channels in C,H,W input shape
-        self.conv1 = nn.Conv2d(input_shape[0],32,kernel_size=(8,8),stride=(4,4))
-        self.conv2 = nn.Conv2d(32,64,kernel_size=(4,4),stride=(2,2))
-        #in each layer, the image size shrinks so use smaller filter size
-        self.conv3 = nn.Conv2d(64,64,kernel_size=(3,3),stride=(1,1))
+
+        self.feature_layer = nn.Sequential(
+            nn.Conv2d(input_shape[0],32,kernel_size=(8,8),stride=(4,4)),
+            nn.ReLU(),
+            nn.Conv2d(32,64,kernel_size=(4,4),stride=(2,2)),
+            nn.ReLU(),
+            nn.Conv2d(64,64,kernel_size=(3,3),stride=(1,1)),
+            nn.ReLU(),
+        )
 
         #flattening layer before they go into the fully connected layer
         self.flatten = nn.Flatten()
@@ -28,22 +37,27 @@ class MarioNet(nn.Module):
         print("flattened size = "+str(flat_size))
         
         #value of the image state
-        self.action_value1 = nn.Linear(flat_size,1024) # 1024 neurons we use in fully connected layer
+        self.action_value1 = NoisyLinear(flat_size,1024) # 1024 neurons we use in fully connected layer
         self.action_value2 = NoisyLinear(1024,1024)
-        self.action_value3 = NoisyLinear(1024,nb_actions) # nb_actions output -> probability of actions selected
+        self.advantage_layer = NoisyLinear(1024,out_dim * atom_size) # TODO: understand this better
 
         #now do similar for State value
-        self.state_value1 = nn.Linear(flat_size,1024)
+        self.state_value1 = NoisyLinear(flat_size,1024)
         self.state_value2 = NoisyLinear(1024,1024)
-        self.state_value3 = NoisyLinear(1024,1) # single value output, tells us if given state is valuable to the agent
+        self.value_layer = NoisyLinear(1024,atom_size) # TODO: understand this better
 
         self.device = device
         self.to(self.device)
     #function that gets called when network is being called
     #x is input to the network
     def forward(self,x):
-
         x.to(self.device)
+        
+        dist = self.dist(x)
+        q = torch.sum(dist * self.support,dim=2)
+
+        return q
+        """
         #relu used after conv layers(their output). 
         x = self.relu(self.conv1(x)) # relu takes value, anything under 0 gets nullified. Add non linearity
         x = self.relu(self.conv2(x))
@@ -64,24 +78,50 @@ class MarioNet(nn.Module):
         
         output = state_value + (action_value - action_value.mean())
         return output
+        """
     
+    #get the softmax distribution of q values
+    def dist(self,x):
+
+        #get distribution for atoms
+        feature = self.feature_layer(x)
+        feature = self.flatten(feature)
+
+        #dueling network passing through
+        adv_hid1 = self.relu(self.action_value1(feature))
+        adv_hid2 = self.relu(self.action_value2(adv_hid1))
+        val_hid1 = self.relu(self.state_value1(feature))
+        val_hid2 = self.relu(self.state_value2(val_hid1))
+
+        advantage = self.advantage_layer(adv_hid2).view(
+            -1,self.out_dim,self.atom_size
+        )
+        value = self.value_layer(val_hid2).view(-1,1,self.atom_size)#out dimension is just 1 here
+
+        q_atoms = value + advantage - advantage.mean(dim=1, keepdim=True)
+
+        dist = F.softmax(q_atoms,dim=-1)
+        dist = dist.clamp(min=1e-3) #to avoid nans
+
+        return dist
+
     #pass dummy input through conv layers to get flatten size dynamically
     def get_flat_size(self,input_shape):
 
         with torch.no_grad():#no gradient computation, just a dummy pass
             dummy_input = torch.zeros(1,*input_shape)
-            x = self.conv1(dummy_input)
-            x = self.conv2(x)
-            x = self.conv3(x)
+            x = self.feature_layer(dummy_input)
             return self.flatten(x).shape[1] #get number of features after flattening
     
     #Reset all noisy layers
     def reset_noise(self):
+        self.action_value1.reset_noise()
         self.action_value2.reset_noise()
-        self.action_value3.reset_noise()
+        self.advantage_layer.reset_noise()
 
-        self.state_value2.reset_noise()
-        self.state_value3.reset_noise() 
+        self.state_value1.reset_noise()
+        self.state_value2.reset_noise() 
+        self.value_layer.reset_noise()
 
     #these models take a while to train, want to save it and reload on start
     #use pt format
