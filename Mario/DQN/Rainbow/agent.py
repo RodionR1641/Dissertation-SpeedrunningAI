@@ -16,6 +16,7 @@ from Rainbow.rainbow_model import MarioNet
 from model_mobile_vit import MarioNet_ViT
 from collections import deque
 from segment_tree import MinSegmentTree, SumSegmentTree
+from torch.nn.utils import clip_grad_norm_
 
 log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
 os.makedirs(log_dir, exist_ok=True)
@@ -131,7 +132,6 @@ class ReplayBuffer():
 
     def can_sample(self):
         #need enough varied data to sample, as we sample random data
-        print(f"current size is {self.size}")
         return self.size >= (self.batch_size * 10)
 
 class PrioritisedMemory(ReplayBuffer):
@@ -182,14 +182,6 @@ class PrioritisedMemory(ReplayBuffer):
         dones = self.done_storage[indices]
         #get the weight of each experience at this index
         weights = np.array([self.calculate_weight(index,beta) for index in indices])
-
-        #now convert into tensors for training
-        states = torch.tensor(states, dtype=torch.float32, device=self.device)
-        next_states = torch.tensor(next_states, dtype=torch.float32, device=self.device)
-        actions = torch.tensor(actions.reshape(-1,1), dtype=torch.float32, device=self.device)
-        rewards = torch.tensor(rewards.reshape(-1,1), dtype=torch.float32, device=self.device)
-        dones = torch.tensor(dones.reshape(-1,1), dtype=torch.float32, device=self.device)
-        weights = torch.tensor(weights.reshape(-1,1), dtype=torch.float32, device=self.device) #TODO: make sure this is correct
 
         return dict(states=states,
             next_states=next_states,
@@ -244,30 +236,44 @@ class PrioritisedMemory(ReplayBuffer):
 #plays the game
 #covers a lot of training
 class Agent:
-    #model we train on passed
-    #epsilon -> frequency with which we select a random action. When we start training, want to select certain number of random actions to start off with.
-    #min_epsilon -> threshold for how low epsilon can be, 10% of the time random so model tries new things i.e. exploration
-    #nb_warmup -> number of warmup steps, period where epsilon decays
     #nb_actions -> number of actions
-    #memory_capacity -> for ReplayMemory
-    #batch_size
-    #learning_rate -> how big of a step we want the agent to take at a time, how quickly we want it to learn. If its too high, jump erradically from solution to solution
-    #rather than slowly building to a right solution. Want it to be high enough to pick up changes though, but too high it wont learn well
-    def __init__(self,input_dims,device="cpu",
-                 beta=0.6,
-                 prior_eps=1e-6,
-                 nb_warmup=250_000,
+    #memory_capacity -> number of previous transitions to store in replay buffers
+    #batch_size -> how much is sampled at each time step for training
+    #learning_rate -> how big of a step we want the agent to take at a time, how quickly we want it to learn.
+    #gamma -> controls how much importance future rewards are given when calculating q values
+    #sync_network_rate -> controls in how many timesteps to copy over the online network into target network
+    #v_min -> min value of support
+    #v_max -> max value of support
+    #atom_size -> the unit number of support
+    #support -> support for categorical DQN
+    #alpha -> 
+    #beta -> 
+    #prior_eps -> small value to make sure every experience has a chance to be selected(even if loss was 0)
+    #n_step -> step number to calculate n-step td error
+    #memory_n -> n-step replay buffer
+    def __init__(self,input_dims,
+                 env,
+                 device="cpu",
                  nb_actions=5,
-                 memory_capacity=100_000,
-                 n_step=3,
+                 memory_capacity=50_000,
                  batch_size=32,
                  learning_rate=0.00020,
-                 gamma=0.95,
+                 gamma=0.99,
                  sync_network_rate=10_000,
-                 use_vit=False,
+                 seed=None,
+                 #Categorical DQN parameters
                  v_min=0.0,
                  v_max=200.0,
-                 atom_size=51,):
+                 atom_size=51,
+                 #Prioritised Experience Replay parameters
+                 alpha=0.2,
+                 beta=0.6,
+                 prior_eps=1e-6,
+                 # N-step learning
+                 n_step=3,
+                 # Decide if to use a vit feature network or not
+                 use_vit=False,
+                 ):
         
         """
         if os.path.exists("models"):
@@ -275,22 +281,18 @@ class Agent:
             self.target_model.load_model(device=device)
         """
         self.device = device
-        self.model.to(self.device)
-        self.target_model.to(self.device)
 
         self.nb_actions = nb_actions
+        self.seed = seed
 
-        #hyperparameters
+        #hyperparameters for learning
         self.learning_rate = learning_rate
-        self.nb_warmup = nb_warmup
-        self.gamma = gamma #how much we discount future rewards compared to immediate rewards
+        self.gamma = gamma
 
+        #network hyperparameters
         self.batch_size = batch_size
         self.sync_network_rate = sync_network_rate
-        self.game_steps = 0 #track how many steps taken over entire training
         
-        #Combines adaptive learning rates with weight decay regularisation for better generalisation
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
 
         #categorical DQN parameters
         self.v_min = v_min
@@ -298,28 +300,43 @@ class Agent:
         self.atom_size = atom_size
         self.support = torch.linspace(self.v_min,self.v_max,self.atom_size).to(self.device)
 
-        if(use_vit):
-            self.model = MarioNet_ViT(nb_actions=nb_actions,device=device) #5 actions for agent can do in this game
-        else:
-            self.model = MarioNet(input_dims,nb_actions=nb_actions,device=device)
-        self.target_model = copy.deepcopy(self.model).eval() #when we work with q learning, want a model and another model we can evaluate of off. Part of Dueling deep Q
+        #PER parameters
+        self.beta = beta
+        self.prior_eps = prior_eps
 
         #memory for 1 step transitions  and n_step transitions
         # guarantees any paired 1 step and n_step transitions have the same indices    
         # therefore can sample pairs of transitions from 2 buffers once we have indices for samples
-        self.memory = PrioritisedMemory(input_dims,memory_capacity,self.batch_size,n_steps=1,device=self.device)
-        
+        self.memory = PrioritisedMemory(input_dims,memory_capacity,self.batch_size,alpha=alpha,gamma=gamma,device=self.device)
+        #memory for N-step learning
         self.use_n_step = True if n_step > 1 else False
         if self.use_n_step:
             self.n_step = n_step
-            self.n_memory = PrioritisedMemory(input_dims,memory_capacity,self.batch_size,n_steps=n_step,device=self.device,gamma=gamma)
+            self.n_memory = PrioritisedMemory(input_dims,memory_capacity,self.batch_size,alpha=alpha
+                                              ,n_steps=n_step,device=self.device,gamma=gamma)
         
+
+        #online and target DQN networks
+        if(use_vit):
+            self.model = MarioNet_ViT(nb_actions=nb_actions,device=device) #5 actions for agent can do in this game
+        else:
+            self.model = MarioNet(input_dims,support=self.support,out_dim=self.nb_actions,
+                                  atom_size=self.atom_size,device=device)
+        self.target_model = copy.deepcopy(self.model).eval() #when we work with q learning, want a model and another model we can evaluate of off. Part of Dueling deep Q
+
+        #Combines adaptive learning rates with weight decay regularisation for better generalisation
+        self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
+
         # transition to store in memory
         self.transition = list()
-
-        self.beta = beta # ///TODO: go over what beta does for prioritised buffer
-        self.prior_eps = prior_eps
         
+        self.game_steps = 0 #track how many steps taken over entire training
+        self.env = env
+
+        self.is_test = False #controls the test/train mode. Better than just having 2 files
+        
+        self.model.to(self.device)
+        self.target_model.to(self.device)
         logging.info(f"starting, device={device}")
         print_info()
 
@@ -334,7 +351,8 @@ class Agent:
         
         action = self.model(state).argmax().item()
 
-        self.transition = [state,action]#store the transition
+        if not self.is_test:
+            self.transition = [state,action]#store the transition
 
         return action
 
@@ -343,6 +361,125 @@ class Agent:
             #TODO: consider tau here instead rather than quick changes
             self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
 
+    def step_env(self,action):
+        next_state,reward,done,info = self.env.step(action)
+
+        if not self.is_test:
+            self.transition += [reward,next_state,done]
+            if self.use_n_step:
+                one_step_transition = self.n_memory.insert(*self.transition)
+            else:
+                one_step_transition = self.transition
+
+            #add a single step transition
+            if one_step_transition:
+                self.memory.insert(*one_step_transition)
+        
+        return next_state,reward,done
+    
+    #update by gradient descent and calculate loss her
+    def update_model(self):
+        self.sync_networks()
+
+        samples = self.memory.sample_batch(self.beta)
+        weights = torch.tensor(samples["weights"].reshape(-1,1), dtype=torch.float32, device=self.device)
+        indices = samples["indices"]
+        
+        #1 step learning loss
+        element_loss = self.compute_dqn_loss(samples,self.gamma)
+
+        #PER: importance sampling before getting the average
+        loss = torch.mean(element_loss * weights)
+
+        #N-step learning loss. Combine n-loss and 1 step loss to prevent high variance, but original paper employs n-step only
+        if(self.use_n_step):
+            gamma = self.gamma ** self.n_step
+            samples = self.n_memory.sample_batch_idxs(indices)
+            element_loss_n = self.compute_dqn_loss(samples,gamma)
+            element_loss += element_loss_n
+
+            #PER: importance sampling before getting the average
+            loss = torch.mean(element_loss * weights)
+        
+        self.optimizer.zero_grad()
+        loss.backward()
+        ep_loss = loss.item()
+        clip_grad_norm_(self.model.parameters(),10.0)
+        self.optimizer.step()
+
+        #PER: update priorities
+        loss_for_prior = element_loss.detach().cpu().numpy()
+        new_priorities = loss_for_prior + self.prior_eps # a small number added at the end to make sure its never 0
+        self.memory.update_priorities(indices,new_priorities)
+
+        # NoisyNet: reset noise
+        self.model.reset_noise()
+        self.target_model.reset_noise()
+
+        return ep_loss
+
+    def compute_dqn_loss(self,samples,gamma):
+
+        #now convert into tensors for training
+        states = torch.tensor(samples["states"], dtype=torch.float32, device=self.device)
+        next_states = torch.tensor(samples["next_states"], dtype=torch.float32, device=self.device)
+        actions = torch.tensor(samples["actions"], dtype=torch.long, device=self.device) #long tensor for actions
+        rewards = torch.tensor(samples["rewards"].reshape(-1,1), dtype=torch.float32, device=self.device)
+        dones = torch.tensor(samples["dones"].reshape(-1,1), dtype=torch.float32, device=self.device)
+        
+        #Categorical DQN algorithm here
+        delta_z = float(self.v_max - self.v_min) / (self.atom_size - 1)
+
+        with torch.no_grad():
+            #Double DQN
+            next_action = self.model(next_states).argmax(1)#get the next_action that online network would choose
+            next_dist = self.target_model.dist(next_states)
+            next_dist = next_dist[range(self.batch_size),next_action]#see the q values the target model gives for the
+            #actions online network took
+
+            t_z = rewards + (1 - dones) * gamma * self.support
+            t_z = t_z.clamp(min=self.v_min, max=self.v_max)
+            b = (t_z - self.v_min) / delta_z
+            l = b.floor().long()
+            u = b.ceil().long()
+
+            offset = (
+                torch.linspace(
+                    0, (self.batch_size - 1) * self.atom_size, self.batch_size
+                ).long()
+                .unsqueeze(1)
+                .expand(self.batch_size, self.atom_size)
+                .to(self.device)
+            )
+
+            proj_dist = torch.zeros(next_dist.size(), device=self.device)
+            proj_dist.view(-1).index_add_(
+                0, (l + offset).view(-1), (next_dist * (u.float() - b)).view(-1)
+            )
+            proj_dist.view(-1).index_add_(
+                0, (u + offset).view(-1), (next_dist * (b - l.float())).view(-1)
+            )
+
+        dist = self.model.dist(states)
+        log = torch.log(dist[range(self.batch_size), actions])
+        element_loss = -(proj_dist * log).sum(1) #different loss function compared to MSE
+
+        return element_loss
+
+        qsa_b = self.model(states)[torch.arange(32), actions.squeeze().long()]
+        qsa_b = qsa_b.unsqueeze(dim=-1)
+        next_qsa_b = self.target_model(next_states).max(dim=1,keepdim=True)[0].detach()
+        mask = 1 - dones
+        target_b = (rewards + self.gamma * next_qsa_b * mask).to(self.device)
+        #indices = samples["index"]
+        #use epsilon value for exponent b -> as epsilon decreases the b value gets larger
+
+        #element_loss = self.loss(qsa_b, target_b)
+        element_loss = torch.nn.functional.smooth_l1_loss(qsa_b, target_b, reduction="none")
+        weighted_loss = torch.mean(element_loss * weights)
+
+        return element_loss,weighted_loss
+
 
     #epochs = how many iterations to train for
     def train(self,env, epochs):
@@ -350,6 +487,7 @@ class Agent:
         stats = {"Returns":[],"Loss": [],"AverageLoss": [], "TimeStep": []} #store as dictinary of lists
 
         plotter = LivePlot()
+        self.is_test = False
 
         for epoch in range(1,epochs+1):
             state = env.reset() #reset the environment for each iteration
@@ -362,48 +500,16 @@ class Agent:
                 action = self.get_action(state)
 
                 self.game_steps += 1
-                start_step = time.time()
-                next_state,reward,done,info = env.step(action)
-                end_step = time.time() - start_step
-                #print(f"step took {end_step}")
-                #order of list matters
+                next_state,reward,done = self.step_env(action)
 
-                self.transition += [reward,next_state,done]
-                if self.use_n_step:
-                    one_step_transition = self.n_memory.insert(*self.transition)
-                else:
-                    one_step_transition = self.transition
-
-                #add a single step transition
-                if one_step_transition:
-                    self.memory.insert(*one_step_transition)
-
-                # update beta, make it go closer to 1 as towards the end of training as we want more unbiased updates to 
+                #PER: update beta, make it go closer to 1 as towards the end of training as we want 
+                # more unbiased updates to prevent overfitting
                 fraction = min(epoch/epochs,1.0)
                 self.beta = self.beta + fraction * (1.0 - self.beta)
                 #actual training part
                 #can take out of memory only if sufficient size
-                #if len(self.replay_buffer) >= (self.batch_size * 10):
                 if self.memory.can_sample():    
-                    print("can sample")
-                    self.sync_networks()
-
-                    samples = self.memory.sample_batch(self.beta)
-                    #states = samples["states"]
-                    #next_states = samples["next_states"]
-                    #actions = samples["actions"]
-                    #rewards = samples["rewards"]
-                    #dones = samples["dones"]
-                    #weights = samples["weights"]
-                    indices = samples["indices"]
-                    
-                    element_loss,weight_loss = self.compute_dqn_loss(samples,self.gamma)
-
-                    if(self.use_n_step):
-                        samples = self.n_memory.sample_batch_idxs(indices)
-                        gamma = self.gamma ** self.n_step
-                        element_loss_n, weight_loss_n = self.compute_dqn_loss(samples,gamma)
-                        weight_loss += weight_loss_n         
+                    #print("can sample")         
 
                     """
                     qsa_b = self.model(states)  # Shape: (batch_size, n_actions) as network estimates q value for all actions. so have rows of q values for each action
@@ -423,20 +529,8 @@ class Agent:
                     #detach -> important as we dont want to back propagate on target network
                     target_b = (rewards + self.gamma * next_qsa_b * (1 - dones.float()) ).detach() #1-dones.float() -> stop propagating when finished episode
                     """
-
-                    self.optimizer.zero_grad()
-                    weight_loss.backward()
-                    ep_loss += weight_loss.item()
-                    self.optimizer.step()
-
-                    loss_for_prior = element_loss.detach().cpu().numpy()
-                    new_probabilities = loss_for_prior + self.prior_eps # a small number added at the end to make sure its never 0
-                    self.memory.update_priorities(indices,new_probabilities)
-
-                    # NoisyNet: reset noise
-                    self.model.reset_noise()
-                    self.target_model.reset_noise()
-
+                    loss = self.update_model()
+                    ep_loss += loss
                 state = next_state #did the training, now move on with next state
                 ep_return += reward
                 end_whole = time.time() - start_whole
@@ -473,31 +567,9 @@ class Agent:
             if epoch % 1000 == 0:
                 self.model.save_model(f"models/model_iter_{epoch}.pt") #saving the models, may see where the good performance was and then it might tank -> can copy
                 #this in as the main model. Then can start retraining from this point if needed
-            
+        
+        self.env.close()
         return stats
-
-
-    def compute_dqn_loss(self,samples,gamma):
-        states = samples["states"]
-        next_states = samples["next_states"]
-        actions = samples["actions"]
-        rewards = samples["rewards"]
-        dones = samples["dones"]
-        weights = samples["weights"]
-
-        qsa_b = self.model(states)[torch.arange(32), actions.squeeze().long()]
-        qsa_b = qsa_b.unsqueeze(dim=-1)
-        next_qsa_b = self.target_model(next_states).max(dim=1,keepdim=True)[0].detach()
-        mask = 1 - dones
-        target_b = (rewards + self.gamma * next_qsa_b * mask).to(self.device)
-        #indices = samples["index"]
-        #use epsilon value for exponent b -> as epsilon decreases the b value gets larger
-
-        #element_loss = self.loss(qsa_b, target_b)
-        element_loss = torch.nn.functional.smooth_l1_loss(qsa_b, target_b, reduction="none")
-        weighted_loss = torch.mean(element_loss * weights)
-
-        return element_loss,weighted_loss
 
     #run something on the machine, and see how we perform
     def test(self, env):

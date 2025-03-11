@@ -321,7 +321,8 @@ class Agent:
             if epoch % 1000 == 0:
                 self.model.save_model(f"models/model_iter_{epoch}.pt") #saving the models, may see where the good performance was and then it might tank -> can copy
                 #this in as the main model. Then can start retraining from this point if needed
-            
+        
+        env.close()
         return stats
     
 

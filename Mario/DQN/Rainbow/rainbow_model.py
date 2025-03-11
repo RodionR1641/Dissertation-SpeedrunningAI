@@ -9,8 +9,13 @@ class MarioNet(nn.Module):
 
     #setup all the methods in init and call in forward method
 
-    #pass number of actions network can take for flexibility
-    def __init__(self,input_shape,support,out_dim,atom_size,device="cpu",nb_actions=5):
+    def __init__(self,
+                 input_shape,
+                 support,
+                 out_dim,
+                 atom_size
+                 ,device="cpu"
+                 ):
         super(MarioNet,self).__init__()
 
         #Categorical DQN
@@ -54,8 +59,8 @@ class MarioNet(nn.Module):
         x.to(self.device)
         
         dist = self.dist(x)
-        q = torch.sum(dist * self.support,dim=2)
-
+        q = torch.sum(dist * self.support, dim=2)
+        
         return q
         """
         #relu used after conv layers(their output). 
@@ -144,7 +149,6 @@ class MarioNet(nn.Module):
 
 
 
-
 class NoisyLinear(nn.Module):
     """Noisy linear module for NoisyNet.
     
@@ -158,17 +162,27 @@ class NoisyLinear(nn.Module):
         bias_sigma (nn.Parameter): std value bias parameter
         
     """
-    def __init__(self, in_features,out_features,std_init=0.5):
-        super().__init__()
 
+    def __init__(
+        self, 
+        in_features: int, 
+        out_features: int, 
+        std_init: float = 0.5,
+    ):
+        """Initialization."""
+        super(NoisyLinear, self).__init__()
+        
         self.in_features = in_features
         self.out_features = out_features
         self.std_init = std_init
 
-        self.weight_mu = nn.Parameter(torch.Tensor(out_features,in_features))
-        self.weight_sigma = nn.Parameter(torch.Tensor(out_features,in_features))
-
-        self.register_buffer("weight_epsilon", torch.Tensor(out_features,in_features))
+        self.weight_mu = nn.Parameter(torch.Tensor(out_features, in_features))
+        self.weight_sigma = nn.Parameter(
+            torch.Tensor(out_features, in_features)
+        )
+        self.register_buffer(
+            "weight_epsilon", torch.Tensor(out_features, in_features)
+        )
 
         self.bias_mu = nn.Parameter(torch.Tensor(out_features))
         self.bias_sigma = nn.Parameter(torch.Tensor(out_features))

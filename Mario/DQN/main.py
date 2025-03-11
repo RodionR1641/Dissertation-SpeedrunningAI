@@ -35,7 +35,9 @@ if(user_input):
 
 else:
     #nb_warmup -> time it takes for epsilon to decay from 1 to min_epsilon
-    agent = Agent(input_dims=environment.observation_space.shape,device=device,nb_warmup=250_000,
+    agent = Agent(input_dims=environment.observation_space.shape,
+                  env=environment,
+                  device=device,
                   nb_actions=num_actions,
                   memory_capacity=10_000,
                   batch_size=32,use_vit=use_vit)
