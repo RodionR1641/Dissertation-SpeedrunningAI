@@ -155,8 +155,8 @@ if __name__ == "__main__":
 
     if(args.rand_net_dist):
         #have a predictor and target network
-        rnd_target = RNDNetwork(envs.single_observation_space.shape).to(device)
-        rnd_predictor = copy.deepcopy(rnd_target).eval()
+        rnd_predictor = RNDNetwork(envs.single_observation_space.shape).to(device)#randomly initialised target network
+        rnd_target = RNDNetwork(envs.single_observation_space.shape).to(device).eval()
         rnd_optimiser = optim.Adam(rnd_predictor.parameters(), lr=args.learning_rate, eps=1e-5)
 
 
