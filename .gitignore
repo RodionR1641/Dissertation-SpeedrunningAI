@@ -4,3 +4,4 @@ logs/
 __pycache__
 Mario/PPO/runs/
 Mario/PPO/wandb/
+*.pt
