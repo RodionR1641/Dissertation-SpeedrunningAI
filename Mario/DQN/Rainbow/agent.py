@@ -9,9 +9,6 @@ import time
 import os
 import logging
 import datetime
-from tensordict import TensorDict
-from torchrl.data.replay_buffers import TensorDictReplayBuffer
-from torchrl.data.replay_buffers.storages import LazyMemmapStorage
 from Rainbow.rainbow_model import MarioNet
 from model_mobile_vit import MarioNet_ViT
 from collections import deque

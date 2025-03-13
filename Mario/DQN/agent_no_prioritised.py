@@ -3,17 +3,14 @@ import torch
 import copy
 import torch.optim as optim
 import torch.nn.functional as F
-from Mario.DQN.plot import LivePlot
+from plot import LivePlot
 import numpy as np
 import time
 import os
 import logging
 import datetime
-from tensordict import TensorDict
-from torchrl.data.replay_buffers import TensorDictReplayBuffer
-from torchrl.data.replay_buffers.storages import LazyMemmapStorage
-from Mario.DQN.model import MarioNet
-from Mario.DQN.model_mobile_vit import MarioNet_ViT
+from model import MarioNet
+from model_mobile_vit import MarioNet_ViT
 
 log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
 os.makedirs(log_dir, exist_ok=True)
@@ -135,7 +132,7 @@ class Agent:
     #learning_rate -> how big of a step we want the agent to take at a time, how quickly we want it to learn. If its too high, jump erradically from solution to solution
     #rather than slowly building to a right solution. Want it to be high enough to pick up changes though, but too high it wont learn well
     def __init__(self,input_dims,device="cpu",epsilon=1.0,min_epsilon=0.1,nb_warmup=250_000,nb_actions=5,memory_capacity=100_000,
-                 batch_size=32,learning_rate=0.00020,gamma=0.95,sync_network_rate=10_000,use_vit=False):
+                 batch_size=32,learning_rate=0.00020,gamma=0.95,sync_network_rate=10_000,use_vit=False,env=None):
         
         if(use_vit):
             self.model = MarioNet_ViT(nb_actions=nb_actions,device=device) #5 actions for agent can do in this game
@@ -194,22 +191,6 @@ class Agent:
                         .to(self.model.device)
             #use advantage function to calculate max action
             return self.model(state).argmax().item()
-
-    def store_memory(self,state,action,reward,next_state,done):
-        """
-        if td_error is None:
-            #give a high td_err as at start probably bad, also making it uniform until fill up buffer
-            td_error = torch.tensor(1.0, dtype=torch.float32)
-        """
-
-        self.replay_buffer.add(TensorDict({
-                                            "state": torch.tensor(np.array(state), dtype=torch.float32,device="cpu"), 
-                                            "action": torch.tensor(action,device="cpu"),
-                                            "reward": torch.tensor(reward,device="cpu"), 
-                                            "next_state": torch.tensor(np.array(next_state), dtype=torch.float32,device="cpu"), 
-                                            "done": torch.tensor(done,device="cpu")
-                                            #"td_error":torch.tensor(td_error,dtype=torch.float32)
-                                          }, batch_size=[]))
 
     #adjust the priorities in the buffer
     def update_priorities(self,indices, td_errors):

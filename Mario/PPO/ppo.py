@@ -79,7 +79,7 @@ def parse_args():
         help="the maximum norm for the gradient clipping")
     parser.add_argument("--target-kl", type=float, default=None,
         help="the target KL divergence threshold")
-    parser.add_argument("--rand-net-dist",type=bool,default=True,
+    parser.add_argument("--rand-net-dist",type=bool,default=False,
         help="random network distillation to calculate intrinsic rewards that help explore novel states")
     
     args = parser.parse_args()

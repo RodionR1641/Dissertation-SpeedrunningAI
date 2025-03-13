@@ -18,9 +18,6 @@ class RNDNetwork(nn.Module):
             nn.Linear(512, 512),  # Output feature vector
         )
 
-    def forward(self, x):
-        return self.cnn(x)
-
 
 """
 # TODO: go over this 
