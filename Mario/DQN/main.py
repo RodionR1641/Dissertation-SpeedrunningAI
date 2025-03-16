@@ -2,7 +2,7 @@ import torch
 import os
 import keyboard
 #from Rainbow.agent import Agent
-from Rainbow_RND.agent import Agent
+from Rainbow.agent import Agent
 from mario import DQN_Mario
 import numpy as np
 import random

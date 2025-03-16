@@ -355,11 +355,10 @@ class Agent:
         self.target_model.load_state_dict(self.model.state_dict())
         self.target_model.eval()#evaluation mode, means it wont learn via gradient updates
 
-        #RND networks
+        #RND networks - dont copy them over as target must be a random network we predict
         self.model_rnd = RND_model(input_dims,device=device)
         self.target_rnd = RND_model(input_dims,device=device)
-        #self.target_rnd.load_state_dict(self.model_rnd.state_dict())
-        self.target_model.eval()
+        self.target_rnd.eval()
 
         #Combines adaptive learning rates with weight decay regularisation for better generalisation
         self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)

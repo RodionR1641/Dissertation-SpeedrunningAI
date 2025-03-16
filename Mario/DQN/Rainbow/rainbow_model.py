@@ -38,52 +38,32 @@ class MarioNet(nn.Module):
         #flattening layer before they go into the fully connected layer
         self.flatten = nn.Flatten()
         
-        flat_size = self.get_flat_size(input_shape)
+        flat_size = get_flat_size(input_shape,self.feature_layer)
         print("flattened size = "+str(flat_size))
         
         #value of the image state
         self.action_value1 = NoisyLinear(flat_size,1024) # 1024 neurons we use in fully connected layer
         self.action_value2 = NoisyLinear(1024,1024)
-        self.advantage_layer = NoisyLinear(1024,out_dim * atom_size) # TODO: understand this better
+        self.advantage_layer = NoisyLinear(1024,out_dim * atom_size) # output a distribution of probabilites 
+        # of potential returns(atoms) for each action(out_dim)
 
         #now do similar for State value
         self.state_value1 = NoisyLinear(flat_size,1024)
         self.state_value2 = NoisyLinear(1024,1024)
-        self.value_layer = NoisyLinear(1024,atom_size) # TODO: understand this better
+        self.value_layer = NoisyLinear(1024,atom_size)
 
         self.device = device
         self.to(self.device)
     #function that gets called when network is being called
     #x is input to the network
     def forward(self,x):
+        x = x / 255.0#normalise between 0 and 1, better gradient stability
         x.to(self.device)
         
         dist = self.dist(x)
-        q = torch.sum(dist * self.support, dim=2)
+        q = torch.sum(dist * self.support, dim=2)#do sum over last dimension(atom_size)
         
-        return q
-        """
-        #relu used after conv layers(their output). 
-        x = self.relu(self.conv1(x)) # relu takes value, anything under 0 gets nullified. Add non linearity
-        x = self.relu(self.conv2(x))
-        x = self.relu(self.conv3(x))
-        x = self.flatten(x) #basically take multidimensional array and turn it into 1D
-
-        #we can reuse x and state_value as relu and dropout dont have any parameters to learn anyway
-        # the state_value1,state_value2 etc actually learns the necessary parameters
-        # basically get output from these layers, 
-        state_value = self.relu(self.state_value1(x))
-        state_value = self.relu(self.state_value2(state_value))
-        state_value = self.state_value3(state_value) #no relu
-
-        action_value = self.relu(self.action_value1(x))
-        action_value = self.relu(self.action_value2(action_value))
-        action_value = self.action_value3(action_value) #dont have relu on last layer as dont want to limit
-        #to only negative actions
-        
-        output = state_value + (action_value - action_value.mean())
-        return output
-        """
+        return q#output is (batch_size,out_dim)
     
     #get the softmax distribution of q values
     def dist(self,x):
@@ -100,23 +80,15 @@ class MarioNet(nn.Module):
 
         advantage = self.advantage_layer(adv_hid2).view(
             -1,self.out_dim,self.atom_size
-        )
-        value = self.value_layer(val_hid2).view(-1,1,self.atom_size)#out dimension is just 1 here
+        )# shape (batch_size,out_dim,atom_size). Advantage is a distribution over atoms for each action
+        value = self.value_layer(val_hid2).view(-1,1,self.atom_size)#out dimension is just 1 here. The state value is the same for all actions
 
-        q_atoms = value + advantage - advantage.mean(dim=1, keepdim=True)
+        q_atoms = value + advantage - advantage.mean(dim=1, keepdim=True) #final shape is (batch_size,1,atom_size)
 
         dist = F.softmax(q_atoms,dim=-1)
         dist = dist.clamp(min=1e-3) #to avoid nans
 
-        return dist
-
-    #pass dummy input through conv layers to get flatten size dynamically
-    def get_flat_size(self,input_shape):
-
-        with torch.no_grad():#no gradient computation, just a dummy pass
-            dummy_input = torch.zeros(1,*input_shape)
-            x = self.feature_layer(dummy_input)
-            return self.flatten(x).shape[1] #get number of features after flattening
+        return dist #dimension is (batch_size, out_dim, atom_size)
     
     #Reset all noisy layers
     def reset_noise(self):
@@ -147,8 +119,8 @@ class MarioNet(nn.Module):
             print(f"Error: {e}")
     
 
-
-
+# introduce noise into neural networks to encourage exploration
+# sample from a distribution of weights rather than using fixed epsilon exploration rate
 class NoisyLinear(nn.Module):
     """Noisy linear module for NoisyNet.
     
@@ -176,10 +148,13 @@ class NoisyLinear(nn.Module):
         self.out_features = out_features
         self.std_init = std_init
 
+        #mu is the mean of weights and std is standard deviation. Both are learnable and we can learn how much noise is beneficial
+        #they are both model parameters
         self.weight_mu = nn.Parameter(torch.Tensor(out_features, in_features))
         self.weight_sigma = nn.Parameter(
             torch.Tensor(out_features, in_features)
         )
+        #hold the noise added to the weights during forward pass. not a model parameter
         self.register_buffer(
             "weight_epsilon", torch.Tensor(out_features, in_features)
         )
@@ -188,16 +163,18 @@ class NoisyLinear(nn.Module):
         self.bias_sigma = nn.Parameter(torch.Tensor(out_features))
         self.register_buffer("bias_epsilon", torch.Tensor(out_features))
 
-        self.reset_parameters()
-        self.reset_noise()
+        self.reset_parameters()#init weight and biases
+        self.reset_noise()#init noise values
 
+    #init the trainable parameters
+    #start with small random values, small and controlled noise
     def reset_parameters(self):
         """Reset trainable network parameters (factorized gaussian noise)."""
-        mu_range = 1 / math.sqrt(self.in_features)
-        self.weight_mu.data.uniform_(-mu_range, mu_range)
+        mu_range = 1 / math.sqrt(self.in_features) #divide by number of input features
+        self.weight_mu.data.uniform_(-mu_range, mu_range) #in between the range, uniform
         self.weight_sigma.data.fill_(
             self.std_init / math.sqrt(self.in_features)
-        )
+        )#std_init is a hyperparameter, control initial magnitude of noise. noise is normalised based on input features
         self.bias_mu.data.uniform_(-mu_range, mu_range)
         self.bias_sigma.data.fill_(
             self.std_init / math.sqrt(self.out_features)
@@ -209,8 +186,10 @@ class NoisyLinear(nn.Module):
         epsilon_out = self.scale_noise(self.out_features)
 
         # outer product
-        self.weight_epsilon.copy_(epsilon_out.ger(epsilon_in))
-        self.bias_epsilon.copy_(epsilon_out)
+        self.weight_epsilon.copy_(epsilon_out.ger(epsilon_in))# combine the noise vectors of in and out. Produce a matrix of size
+        #outfeatures x in_features, match the shape of original matrix of all the weights we have
+        # ger computes the outer product of 2 vectors
+        self.bias_epsilon.copy_(epsilon_out)#bias noise is simply eps_out vector, biases have the same size as output dimension
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward method implementation.
@@ -218,6 +197,8 @@ class NoisyLinear(nn.Module):
         We don't use separate statements on train / eval mode.
         It doesn't show remarkable difference of performance.
         """
+        #y = ax + b formula but a is mu_w * sigma_w * w_eps and b is mu_b * sigma_b * b_eps
+        # applying linear transformation: y = x @ W.T + b where @ is matrix multiplication and .T denotes transpose
         return F.linear(
             x,
             self.weight_mu + self.weight_sigma * self.weight_epsilon,
@@ -226,7 +207,20 @@ class NoisyLinear(nn.Module):
     
     @staticmethod
     def scale_noise(size: int) -> torch.Tensor:
-        """Set scale to make noise (factorized gaussian noise)."""
-        x = torch.randn(size)
+        """Set scale to make noise (factorized gaussian noise) which is computationally efficient compared to sampling new noise
+        for each weight"""
+        x = torch.randn(size) #random noise data based on size. This is standard normal distribution: 0 mean, unit(1) variance
 
+        #get the absolute value and sqrt it for scaling
+        #then preserve the sign of the original x
         return x.sign().mul(x.abs().sqrt())
+
+def get_flat_size(input_shape,feature_layer):
+    #pass dummy input through conv layers to get flatten size dynamically
+
+    with torch.no_grad():#no gradient computation, just a dummy pass
+        dummy_input = torch.zeros(1,*input_shape)
+        x = feature_layer(dummy_input)
+        flatten = nn.Flatten() #need instance of this to calculate shape
+        flattened_x = flatten(x)
+        return flattened_x.shape[1] #get number of features after flattening
