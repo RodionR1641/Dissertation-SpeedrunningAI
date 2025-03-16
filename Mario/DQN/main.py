@@ -2,8 +2,20 @@ import torch
 import os
 import keyboard
 #from Rainbow.agent import Agent
-from Rainbow.agent import Agent
+from Rainbow_RND.agent import Agent
 from mario import DQN_Mario
+import numpy as np
+import random
+
+def seed_run(seed):
+    torch.manual_seed(seed)
+    if torch.backends.cudnn.enabled:
+        torch.cuda.manual_seed(seed)
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+    
+    np.random.seed(seed)
+    random.seed(seed)
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
 
@@ -35,6 +47,9 @@ if(user_input):
         _,_,done, _= environment.step(action)
 
 else:
+    seed = 999
+    environment.seed(seed)
+    seed_run(seed)
     #nb_warmup -> time it takes for epsilon to decay from 1 to min_epsilon
     agent = Agent(input_dims=environment.observation_space.shape,
                   env=environment,
@@ -43,4 +58,4 @@ else:
                   memory_capacity=10_000,
                   batch_size=32,use_vit=use_vit)
 
-    agent.train(env=environment, epochs=200000) #pass the DQNBreakout environment for agent to train on
+    agent.train(env=environment, epochs=200000) #pass the Mario environment for agent to train on
