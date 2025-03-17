@@ -57,7 +57,18 @@ class MarioNet(nn.Module):
         #return actions, log probabilities, entropies and values from critic
         return action,probabilities.log_prob(action), probabilities.entropy(),self.critic(hidden)
 
-# TODO: go over this 
+# Layer initialisation
+# PPO uses orthogonal initialisation on layers weight and constant initialisation on bias
+# std is sqrt 2 for most layers except the output layers where critic uses 1 as std and actor uses 0.01 to make sure the 
+# layer parameters have similar scalar values and probability of takin each action is similar
+# orthogonal - makes sure that the weight matrix of a layer is orthogonal(column vectors are orthogonal - dot product of them is 0)
+# this is to preserve the norm of the input, helps with stability and prevents vanishing gradients
+# constant - makes sure bias is fixed value. Initialised to 0 to ensure initial outputs of layer are
+# not biased towards anything, neutral state of network 
+
+# why sqrt(2) -> ensure the variance of activations remains approximately the same across layers, stability
+# critic output -> std = 1 ,not too large or too small
+# actor -> smaller std = 0.01, nearly uniform probabilities. Start exploring all actions
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0): #use sqrt 2 as standard deviation
     torch.nn.init.orthogonal_(layer.weight,std)
     torch.nn.init.constant_(layer.bias,bias_const)

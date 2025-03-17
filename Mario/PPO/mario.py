@@ -28,10 +28,10 @@ class Mario(gym.Wrapper):
         # add stochasticity to environment
         
 
-        env.seed = seed
+        env.seed(seed)
         env.action_space.seed(seed)
         env.observation_space.seed(seed)
-        self.random_gen = random.Random(seed=seed)
+        self.random_gen = random.Random()
 
         env = NoopResetEnv(env=env,noop_max=30,rng_gen=self.random_gen)
         # skip 4 frames by default, repeat agents actions for those frames. Done for efficiency. Take the max pixel values over last 2 frames
