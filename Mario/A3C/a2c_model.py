@@ -21,13 +21,13 @@ class ActorCritic(nn.Module):
         self.flatten = nn.Flatten()
         flat_size = self.get_flat_size(input_shape)
 
-        self.actor_pi1 = nn.Linear(flat_size,512)
-        self.actor_pi2 = nn.Linear(512,512)
-        self.actor_pi3 = nn.Linear(512,n_actions) #probabiltiy distribution
+        self.actor_pi1 = nn.Linear(flat_size,1024)
+        self.actor_pi2 = nn.Linear(1024,1024)
+        self.actor_pi3 = nn.Linear(1024,n_actions) #probabiltiy distribution
 
-        self.critic_value1 = nn.Linear(flat_size,512)
-        self.critic_value2 = nn.Linear(512,512)
-        self.critic_value3 = nn.Linear(512,1)
+        self.critic_value1 = nn.Linear(flat_size,1024)
+        self.critic_value2 = nn.Linear(1024,1024)
+        self.critic_value3 = nn.Linear(1024,1)
         
         self.device = device
         self.to(self.device)
@@ -36,7 +36,7 @@ class ActorCritic(nn.Module):
     def forward(self,state):
 
         state.to(self.device)
-        x = x/255.0 #normalise to range 0-1
+        state = state/255.0 #normalise to range 0-1
         x = self.relu(self.conv1(state))
         x = self.relu(self.conv2(x))
         x = self.relu(self.conv3(x))
