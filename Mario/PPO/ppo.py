@@ -83,7 +83,7 @@ def parse_args():
         help="random network distillation to calculate intrinsic rewards that help explore novel states")
     
     args = parser.parse_args()
-    args.batch_size = int(args.num_envs * args.num_steps)
+    args.batch_size = int(args.num_envs * args.num_steps) # the total batch size for learning, split into minibatches
     args.minibatch_size = int(args.batch_size // args.num_minibatches) # minibatches used for training
     # fmt: on
     return args
@@ -151,7 +151,7 @@ if __name__ == "__main__":
 
     ac_model = MarioNet(envs,input_shape=envs.envs[0].observation_space.shape).to(device) #actor critic model.
 
-    optimizer = optim.Adam(ac_model.parameters(), lr=args.learning_rate, eps=1e-5) #epsilon decay of 1e-5
+    optimizer = optim.Adam(ac_model.parameters(), lr=args.learning_rate, eps=1e-5) #epsilon decay of 1e-5 for PPO
 
     if(args.rand_net_dist):
         #have a predictor and target network
@@ -198,7 +198,7 @@ if __name__ == "__main__":
     # training loop -> the learning rate is annealed with each update
     #each update is one iteration of the training loop
     for update in range(1,num_updates+1):
-        #learning rate annealing 
+        #learning rate annealing - the learning rate of adam decays linearly. Papers show this annealing allows agents to obtain higher episodic return
         if args.anneal_lr:
             frac = 1.0 - (update - 1.0) / num_updates # linearly decrease to 0 as update increases to num_updates
             curr_lr = frac * args.learning_rate
@@ -243,7 +243,7 @@ if __name__ == "__main__":
         # TODO: go over this code
         with torch.no_grad():
             next_value = ac_model.get_value(next_obs).reshape(1, -1)
-            #gae way
+            #gae way - 
             if args.gae:
                 advantages = torch.zeros_like(rewards).to(device)
                 lastgaelam = 0
@@ -283,12 +283,12 @@ if __name__ == "__main__":
         b_inds = np.arange(args.batch_size)
         clipfracs = [] # another debug variable -> measure how often the clip objective is actually triggered ///
 
-        #optimising the policy and value networks here
+        #Learning Phase - optimising the policy and value networks here
         for epoch in range(args.update_epochs):
-            np.random.shuffle(b_inds)#shuffle batch
-            for start in range(0, args.batch_size, args.minibatch_size):
-                end = start + args.minibatch_size
-                mb_inds = b_inds[start:end]
+            np.random.shuffle(b_inds)#shuffle batch - get a minibatch here. We guarantee we fetch all the training data
+            for start in range(0, args.batch_size, args.minibatch_size): #step of minibatch, so get all the elements from the batch, but treat data in minibatches
+                end = start + args.minibatch_size #just the maths on calculating end of minibatch
+                mb_inds = b_inds[start:end] #get the minibatch indices
 
                 #do a forward pass on a minibatch of observations
                 _, newlogprob, entropy, newvalue = ac_model.get_action_plus_value(
@@ -306,20 +306,21 @@ if __name__ == "__main__":
                     #measure how often the clip objective is triggered
                     clipfracs += [((ratio - 1.0).abs() > args.clip_coef).float().mean().item()]
 
-                # PPO does advantage normalisation
+                # PPO does advantage normalisation - substract their mean and divide by their standard deviation. This happens at minibatch level. Dosnt affect performance much
                 mb_advantages = b_advantages[mb_inds]
                 if args.norm_adv:
-                    mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8) #substract by mean and divide by st deviation. add a small scalar
+                    mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8) #substract by mean and divide by st deviation. add a small scalar to make sure not divide by 0
                 
-                # PPO uses a clipped policy objective
+                # PPO uses a clipped surrogate objective - outperforms vanilla policy gradient
                 # Polisy loss here  
                 pg_loss1 = -mb_advantages * ratio
                 pg_loss2 = -mb_advantages * torch.clamp(ratio, 1 - args.clip_coef, 1 + args.clip_coef)
                 pg_loss = torch.max(pg_loss1,pg_loss2).mean() # we are doing the max of negatives here, whilst the paper did min of positives. But its the same thing
 
-                # PPO also does value loss clipping
+                # PPO also does value loss clipping, similar to clipped surrogate objective. 
+                # this doesnt really improve performance however, but useful for reproducibility of original paper
 
-                # Value loss implementation here
+                # PPO minimises this loss: L_V = max [ (V_theta_t - V_targ)^2, (clip(V_theta_t, V_theta_t-1 - epsilon, V_theta_t-1 + epsilon) - V_targ) ^ 2]
                 newvalue = newvalue.view(-1)
                 if args.clip_vloss:
                     #clipping, ///go over this
