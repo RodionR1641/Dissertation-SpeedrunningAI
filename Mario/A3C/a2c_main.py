@@ -57,9 +57,19 @@ def print_info():
 def make_env(device,seed=None):
     def one_env():
         env = Mario(device=device)
+        env.seed = seed
         return env    
     return one_env
 
+def seed_run(seed):
+    torch.manual_seed(seed)
+    if torch.backends.cudnn.enabled:
+        torch.cuda.manual_seed(seed)
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+    
+    np.random.seed(seed)
+    random.seed(seed)
 
 def train(env,device,num_envs=1):
     alpha = 1e-5
@@ -81,37 +91,27 @@ def train(env,device,num_envs=1):
         
         while not all(dones):
             #make a state tensor here instead of doing it twice in choose action and learn method
-            start_time_all = time.time()
-            states = torch.as_tensor(states, dtype=torch.float32)
+            states = torch.as_tensor(states, dtype=torch.float32,device=device)
             
-            action = agent.choose_action(states)
+            action = agent.choose_action(states) #get a list of actions chosen for each env
 
-            start_step = time.time()
             next_states,rewards,dones,info = env.step(action)
-            end_step = time.time() - start_step
-            #print(f"env step took {end_step}")
             game_steps += 1
 
-            start_time = time.time()
             loss = agent.learn(states,rewards,next_states,dones)
-            end_time = time.time()
-            #print(f"learn approach took {end_time - start_time:.6f} seconds")
 
             for i in range(num_envs):
-                #ep_losses[i] += loss    
+                ep_losses[i] += loss    
                 ep_returns[i] += rewards[i]
 
-            #env.envs[0].render()
             states = next_states
-            end_time_all = time.time() - start_time_all
-            #print(f"whole thing took {end_time_all}")
             if(game_steps % 100 == 0):
                 print(f"im here {game_steps}")
         
-        stats["Returns"].extend(ep_returns)
-        #stats["Loss"].append(ep_loss)
+        stats["Returns"].extend(ep_returns) #TODO: vectorised env, think how to append it here
+        stats["Loss"].append(ep_losses)
         
-        #print("Total loss = "+str(ep_loss))
+        print("Total loss = "+str(ep_losses))
         print("Time Steps = "+str(game_steps))
 
         if epoch % 10 == 0:
@@ -145,9 +145,10 @@ def main():
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    #env = Mario(device=device)
+    seed = 999
+    seed_run(seed)
     num_envs = 8
-    env = SyncVectorEnv([make_env(device=device) for _ in range(num_envs)])
+    env = SyncVectorEnv([make_env(device=device,seed=seed) for _ in range(num_envs)])
 
     if(testing):
         pass
@@ -155,4 +156,3 @@ def main():
         train(env=env,device=device)
 
 main()
-#cProfile.run('main()', sort='cumtime')

@@ -1,12 +1,8 @@
-import collections
 import gym_super_mario_bros
 import gym
 from gym_super_mario_bros.actions import RIGHT_ONLY
 from nes_py.wrappers import JoypadSpace
 import numpy as np
-import cv2
-from PIL import Image
-import torch
 from gym.wrappers import GrayScaleObservation, ResizeObservation, FrameStack, RecordEpisodeStatistics, RecordVideo
 import random
 
