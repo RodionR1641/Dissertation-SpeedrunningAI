@@ -399,7 +399,7 @@ class Agent:
             self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
 
     def step_env(self,action,intrinsic_reward=None):
-        next_state,reward,done,info = self.env.step(action)
+        next_state,reward,done, _ = self.env.step(action)
 
         if intrinsic_reward:
             reward += intrinsic_reward #total reward is extrinsic(from env) + intrinsic reward
@@ -531,7 +531,7 @@ class Agent:
 
 
     #epochs = how many iterations to train for
-    def train(self,env, epochs):
+    def train(self, epochs):
         #see how the model is doing over time
         stats = {"Total Rewards":[],"Intrinsic Rewards":[],"Loss": [],"AverageLoss": [], "TimeStep": []} #store as dictinary of lists
 
@@ -539,14 +539,13 @@ class Agent:
         self.is_test = False
 
         for epoch in range(1,epochs+1):
-            state = env.reset() #reset the environment for each iteration
+            state = self.env.reset() #reset the environment for each iteration
             done = False
             ep_return = 0
             ep_reward_intrinsic = 0
             ep_loss = 0
 
             while not done:
-                start_whole = time.time()
                 action = self.get_action(state) #this will store the state and action in transition
 
                 self.game_steps += 1
@@ -561,7 +560,7 @@ class Agent:
                 #the RND reward is just the loss between target and predicted
                 #the higher the loss, the less visited the state is likely to be so its novel -> want to encourage exploration
                 intrinsic_reward = torch.pow(predicted_intrinsic - true_intrinsic,2).sum().detach()
-                #clamp the reward TODO: check it
+                #clamp the reward
                 intrinsic_reward = intrinsic_reward.clamp(-1.0,1.0).item() #keep the rewards clamped to not have too much effect
 
                 next_state,reward,done = self.step_env(action,intrinsic_reward=intrinsic_reward)
@@ -580,7 +579,6 @@ class Agent:
                     ep_loss += loss
 
                 state = next_state #did the training, now move on with next state
-                end_whole = time.time() - start_whole
                 #print(f"whole took {end_whole}")
                 #print(f"Got here, episode return={ep_return}, time step = {self.game_steps}")
 
@@ -621,14 +619,14 @@ class Agent:
         return stats
 
     #run something on the machine, and see how we perform
-    def test(self, env):
+    def test(self):
         self.is_test = True
 
         #recording video
         normal_env = self.env
         self.env = gym.wrappers.RecordVideo(self.env,video_folder=video_folder)
 
-        state = env.reset()
+        state = self.env.reset()
         done = False
         score = 0
 
@@ -636,9 +634,9 @@ class Agent:
         while not done:
             time.sleep(0.01) #by default it runs very quickly, so slow down
             action = self.get_action(state,test=True)
-            state,reward,done,info = env.step(action) #make the environment step through the game
+            state,reward,done, _ = self.env.step(action) #make the environment step through the game
             score += reward
-            env.render()
+            self.env.render()
         print("score: ",score)
 
         self.env.close()

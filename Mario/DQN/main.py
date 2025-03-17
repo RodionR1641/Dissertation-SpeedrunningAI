@@ -2,7 +2,7 @@ import torch
 import os
 import keyboard
 #from Rainbow.agent import Agent
-from Rainbow.agent import Agent
+from Rainbow_RND.agent import Agent
 from mario import DQN_Mario
 import numpy as np
 import random
@@ -58,4 +58,4 @@ else:
                   memory_capacity=10_000,
                   batch_size=32,use_vit=use_vit)
 
-    agent.train(env=environment, epochs=200000) #pass the Mario environment for agent to train on
+    agent.train(epochs=200000) #pass the Mario environment for agent to train on

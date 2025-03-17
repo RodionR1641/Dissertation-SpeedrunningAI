@@ -237,9 +237,9 @@ class RND_model(nn.Module):
         self.flatten = nn.Flatten()        
         flat_size = get_flat_size(input_shape,self.feature_layer)
 
-        self.fc1 = nn.Linear(flat_size,512)
-        self.fc2 = nn.Linear(512,512)
-        self.out_layer = nn.Linear(512,512) #see what out dimension should be
+        self.fc1 = nn.Linear(flat_size,1024)
+        self.fc2 = nn.Linear(1024,1024)
+        self.out_layer = nn.Linear(1024,1024) #see what out dimension should be
 
         self.device = device
         self.to(device)

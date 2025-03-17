@@ -11,6 +11,7 @@ import logging
 import datetime
 from model import MarioNet
 from model_mobile_vit import MarioNet_ViT
+import gym
 
 log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
 os.makedirs(log_dir, exist_ok=True)
@@ -18,6 +19,7 @@ os.makedirs(log_dir, exist_ok=True)
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
 log_file = os.path.join(log_dir, f"experiment_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_rank{rank}.log")
+video_folder = "" #TODO: make a folder here
 
 # Configure logging
 logging.basicConfig(
@@ -50,74 +52,48 @@ def print_info():
 # then use that to Train the model to approximate the Q value
 
 # so a way for the agent to remember X number of games and then replay it back for training
-class ReplayMemory:
+class ReplayBuffer():
+
+    def __init__(self,input_dim, size, batch_size=32):
+        frames = input_dim[0]
+        height = input_dim[1]
+        width = input_dim[2]
+
+        self.state_storage = np.zeros([size,frames,height,width],dtype=np.float32) #store by size of image as that includes the image shape
+        self.next_state_storage = np.zeros([size,frames,height,width], dtype=np.float32)
+        self.actions_storage = np.zeros([size], dtype=np.float32)
+        self.rewards_storage = np.zeros([size], dtype=np.float32)
+        self.done_storage = np.zeros(size,dtype=np.float32)
+        self.max_size, self.batch_size = size,batch_size
+        self.ptr, self.size, = 0,0
     
-    def __init__(self, capacity, device="cpu"):
-        self.capacity = capacity #memory capacity
-        self.memory = []
-        self.position = 0
-        self.device = device
-        self.memory_max_report = 0
-
-    #TODO: can implement a Prioritised Sampling -> sample more important experiences to learn from. Given a probability score
-    # transitions where agent made a lot of errors are important, e.g. high temporal difference. These experiences indicate stuff
-    # the model struggles with, so we can learn faster and better
-
-
-    #need to make sure memory doesnt go over a certain size
-    #transition is the data unit at play, tuple of state,action,reward,next state,done. It is an experience of the game at certain time
-    def insert(self, transition):
-        #this replay memory can get large, can run out of GPU memory quickly so put on cpu
-        #divide state and next_state by 255 to normalise around 0 and 1
-        transition[0] = torch.tensor(np.array(transition[0]), dtype=torch.float32,device="cpu") / 255.0 #state.
-        transition[1] = torch.tensor(transition[1],device="cpu") #action
-        transition[2] = torch.tensor(transition[2],device="cpu") #reward
-        transition[3] = torch.tensor(np.array(transition[3]), dtype=torch.float32,device="cpu") / 255.0#next_state
-        transition[4] = torch.tensor(transition[4],device="cpu") #done
-            
-        #so store everything about replay memory in CPU,pushes it into computers main RAM
-        #when we use "sample" method, we can push back to device(e.g. gpu)
-
-        if len(self.memory) < self.capacity:
-            self.memory.append(transition)
-        else:
-            #keep everything under capacity(e.g. a million). Ensure we keep most recent experiences
-            self.memory.remove(self.memory[0]) # like a queue
-            self.memory.append(transition)
+    def insert(self,state,action,reward,next_state,done):
+        self.state_storage[self.ptr] = state 
+        self.next_state_storage[self.ptr] = next_state
+        self.actions_storage[self.ptr] = action
+        self.rewards_storage[self.ptr] = reward
+        self.done_storage[self.ptr] = done
+        #make sure it loops back around once reach size
+        self.ptr = (self.ptr + 1) % self.max_size
+        self.size = min(self.size +1 ,self.max_size)
     
-    # sample the memory now, using a batch size 
-    def sample(self,batch_size=32):
-        assert self.can_sample(batch_size)
+    #return the stored N-step transitions
+    def sample_batch(self):
+        indxs = np.random.choice(self.size,size=self.batch_size,replace=False)#make sure same item cant be selected twice
+        return dict(states=self.state_storage[indxs],
+                    next_states=self.next_state_storage[indxs],
+                    actions=self.actions_storage[indxs],
+                    rewards=self.rewards_storage[indxs],
+                    dones=self.done_storage[indxs]
+                    )
 
-
-        indices = torch.randperm(len(self.memory))[:batch_size] #make sure we have unique indices
-        #make sure they are back on device
-        batch = [self.memory[i] for i in indices]
-        batch_states = torch.stack([b[0] for b in batch]).to(self.device)  # Shape: [batch_size, 4, 84, 84]
-        batch_actions = torch.stack([b[1] for b in batch]).to(self.device) # Shape: [batch_size]
-        batch_rewards = torch.stack([b[2] for b in batch]).to(self.device)  # Shape: [batch_size]
-        batch_next_states = torch.stack([b[3] for b in batch]).to(self.device)  # Shape: [batch_size, 4, 84, 84]
-        batch_dones = torch.stack([b[4] for b in batch]).to(self.device)  # Shape: [batch_size]
-
-        return batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones
-
-
-        batch = random.sample(self.memory,batch_size) # take a random sample of transitions
-        batch = zip(*batch) #basically make columns out of rows. We get transitions as tuples of (state,action .....)
-        #so we then make lists of columns of state,action ...
-        return [torch.cat(items).to(self.device) for items in batch] # convert each list of components
-       #into a tensor using torch.cat(), and back to device now
-       #when batching, these will have size 32 etc
-
-    # see if we can sample from memory given a batch size, so have enough memory to sample
-    def can_sample(self,batch_size):
-        #need enough varied data to sample, as we sample random data
-        return len(self.memory) >= (batch_size * 10)
-
-    #why do we need a len object? -> we need to make sure we get the number of items in memory rather than some object output
-    #other objects can call the len function of this class, but get what we actually want which is len(self.memory) rather than e.g. len(self)
+    #return number of elements stored
     def __len__(self):
-        return len(self.memory) #get number of transitions stored in buffer
+        return self.size
+
+    def can_sample(self):
+        #need enough varied data to sample, as we sample random data
+        return self.size >= (self.batch_size * 5)
 
 #plays the game
 #covers a lot of training
@@ -131,9 +107,25 @@ class Agent:
     #batch_size
     #learning_rate -> how big of a step we want the agent to take at a time, how quickly we want it to learn. If its too high, jump erradically from solution to solution
     #rather than slowly building to a right solution. Want it to be high enough to pick up changes though, but too high it wont learn well
-    def __init__(self,input_dims,device="cpu",epsilon=1.0,min_epsilon=0.1,nb_warmup=250_000,nb_actions=5,memory_capacity=100_000,
-                 batch_size=32,learning_rate=0.00020,gamma=0.95,sync_network_rate=10_000,use_vit=False,env=None):
-        
+    def __init__(self,
+                 env,
+                 input_dims,
+                 device="cpu",
+                 epsilon=1.0,
+                 min_epsilon=0.1,
+                 nb_warmup=250_000,
+                 nb_actions=5,
+                 memory_capacity=50_000,
+                 batch_size=32,
+                 learning_rate=0.00020,
+                 gamma=0.99,
+                 sync_network_rate=10_000,
+                 use_vit=False
+                 ):
+
+        self.env = env
+
+        #initialise the models
         if(use_vit):
             self.model = MarioNet_ViT(nb_actions=nb_actions,device=device) #5 actions for agent can do in this game
         else:
@@ -151,30 +143,31 @@ class Agent:
 
         self.nb_actions = nb_actions
 
-        #hyperparameters
+        #hyperparameters for DQN
         self.learning_rate = learning_rate
         self.nb_warmup = nb_warmup
         self.gamma = gamma #how much we discount future rewards compared to immediate rewards
-        self.epsilon = epsilon
-        self.min_epsilon = min_epsilon
-
-        #self.epsilon_lambda = np.log(1/min_epsilon) / nb_warmup # this is the epsilon decay rate
-
-        #update epsilon at every time step instead now
-        self.epsilon_decay = 0.99999975#1- (((epsilon - min_epsilon) / nb_warmup) *2) # linear decay rate, close to the nb_warmup steps count
         self.batch_size = batch_size
         self.sync_network_rate = sync_network_rate
+
+        #epsilon hyper parameters - update epsilon at every time step.
+        self.epsilon = epsilon
+        self.min_epsilon = min_epsilon
+        self.init_epsilon = 1.0
+        self.epsilon_decay = 0.99999975#1- (((epsilon - min_epsilon) / nb_warmup) *2) # linear decay rate, close to the nb_warmup steps count
+
         self.game_steps = 0 #track how many steps taken over entire training
-        
         
         #Combines adaptive learning rates with weight decay regularisation for better generalisation
         self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
+
         self.loss = torch.nn.MSELoss()
-        
-        self.memory = ReplayMemory(memory_capacity,device=self.device)
+
+        #simple uniform sampling memory        
+        self.memory = ReplayBuffer(input_dims,memory_capacity,batch_size)
         
         logging.info(f"starting, device={device}")
-        print_info()
+        print_info()#get device information printed
 
     #state is image of our environment
     def get_action(self,state,test=False):
@@ -192,56 +185,55 @@ class Agent:
             #use advantage function to calculate max action
             return self.model(state).argmax().item()
 
-    #adjust the priorities in the buffer
-    def update_priorities(self,indices, td_errors):
-        priorities = (td_errors + 1e-5).pow(self.alpha)  # Ensure nonzero priority with epsilon, the alpha control how much priorities matter
-        # if alpha 0 -> all experiences sampled uniformly, if alpha = 1 -> experiences sample fully by priority
-        self.replay_buffer.update_priority(indices, priorities)
-
-    def decay_epsilon(self):
-        # TODO: can do exponential, but good enough
+    def decay_epsilon(self,episode=None):
+        # linear decay : 
         self.epsilon = max(self.epsilon * self.epsilon_decay, self.min_epsilon)
+
+        #exponential decay
+        #self.epsilon = self.min_epsilon + (self.init_epsilon - self.min_epsilon) * np.exp(-self.epsilon_decay * episode)
 
     def sync_networks(self):
         if self.game_steps % self.sync_network_rate == 0 and self.game_steps > 0:
-            #TODO: consider tau here instead rather than quick changes
             self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
 
 
     #epochs = how many iterations to train for
-    def train(self,env, epochs):
+    def train(self, epochs):
         #see how the model is doing over time
         stats = {"Returns":[],"Loss": [],"AverageLoss": [], "Epsilon": []} #store as dictinary of lists
 
         plotter = LivePlot()
 
         for epoch in range(1,epochs+1):
-            state = env.reset() #reset the environment for each iteration
+            state = self.env.reset() #reset the environment for each iteration
             done = False
             ep_return = 0
             ep_loss = 0
 
             while not done:
-                start_whole = time.time()
                 action = self.get_action(state)
 
                 self.game_steps += 1
-                start_step = time.time()
-                next_state,reward,done,info = env.step(action)
-                end_step = time.time() - start_step
+                next_state,reward,done,_ = self.env.step(action)
                 #print(f"step took {end_step}")
                 #order of list matters
-                self.memory.insert([state, action, reward, next_state, done])
+                self.memory.insert(state, action, reward, next_state, done)
 
                 #actual training part
                 #can take out of memory only if sufficient size
-                #if len(self.replay_buffer) >= (self.batch_size * 10):
-                if self.memory.can_sample(self.batch_size):    
+                if self.memory.can_sample():    
                     self.optimizer.zero_grad()
 
                     self.sync_networks()
 
-                    states, actions, rewards, next_states, dones = self.memory.sample(self.batch_size)
+                    samples = self.memory.sample_batch()
+                    #now convert into tensors for training
+                    states = torch.tensor(samples["states"], dtype=torch.float32, device=self.device)
+                    next_states = torch.tensor(samples["next_states"], dtype=torch.float32, device=self.device)
+                    actions = torch.tensor(samples["actions"], dtype=torch.long, device=self.device) #long tensor for actions
+                    rewards = torch.tensor(samples["rewards"], dtype=torch.float32, device=self.device)
+                    dones = torch.tensor(samples["dones"], dtype=torch.float32, device=self.device)
+
 
                     qsa_b = self.model(states)  # Shape: (batch_size, n_actions) as network estimates q value for all actions. so have rows of q values for each action
                     qsa_b = qsa_b[np.arange(self.batch_size), actions.squeeze()] #action contains the actual actions taken, remove extra batch dimension via squeeze
@@ -268,8 +260,6 @@ class Agent:
 
                 state = next_state #did the training, now move on with next state
                 ep_return += reward
-                end_whole = time.time() - start_whole
-                #print(f"whole took {end_whole}")
                 #print(f"Got here now, episode return={ep_return}, time step = {self.game_steps}")
 
             stats["Returns"].append(ep_return)
@@ -303,25 +293,32 @@ class Agent:
                 self.model.save_model(f"models/model_iter_{epoch}.pt") #saving the models, may see where the good performance was and then it might tank -> can copy
                 #this in as the main model. Then can start retraining from this point if needed
         
-        env.close()
+        self.env.close()
         return stats
     
 
     #run something on the machine, and see how we perform
-    def test(self, env):
+    def test(self):
         
-        #just see how game performs for 3 trials
-        for epoch in range(1,3):
-            state = env.reset()
+        #recording video
+        normal_env = self.env
+        self.env = gym.wrappers.RecordVideo(self.env,video_folder=video_folder)
 
-            done = False
+        state = self.env.reset()
+        done = False
+        score = 0
 
-            #1000 steps
-            for _ in range(1000):
-                time.sleep(0.01) #by default it runs very quickly, so slow down
-                action = self.get_action(state,test=True)
-                state,reward,done,info = env.step(action) #make the environment step through the game
-                if done:
-                    break
-                env.render()
+        #1000 steps
+        while not done:
+            time.sleep(0.01) #by default it runs very quickly, so slow down
+            action = self.get_action(state,test=True)
+            state,reward,done, _ = self.env.step(action) #make the environment step through the game
+            score += reward
+            self.env.render()
+        print("score: ",score)
+
+        self.env.close()
+
+        #reset
+        self.env = normal_env
  

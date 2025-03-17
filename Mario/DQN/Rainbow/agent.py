@@ -1,6 +1,5 @@
 import random
 import torch
-import copy
 import gym
 import torch.optim as optim
 import torch.nn.functional as F
@@ -10,7 +9,7 @@ import time
 import os
 import logging
 import datetime
-from Rainbow_RND.rainbow_model import MarioNet, RND_model
+from Rainbow.rainbow_model import MarioNet
 from model_mobile_vit import MarioNet_ViT
 from collections import deque
 from segment_tree import MinSegmentTree, SumSegmentTree
@@ -392,7 +391,7 @@ class Agent:
             self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
 
     def step_env(self,action,intrinsic_reward=None):
-        next_state,reward,done,info = self.env.step(action)
+        next_state,reward,done, _ = self.env.step(action)
 
         if intrinsic_reward:
             reward += intrinsic_reward #total reward is extrinsic(from env) + intrinsic reward
@@ -516,7 +515,7 @@ class Agent:
 
 
     #epochs = how many iterations to train for
-    def train(self,env, epochs):
+    def train(self, epochs):
         #see how the model is doing over time
         stats = {"Total Rewards":[],"Loss": [],"AverageLoss": [], "TimeStep": []} #store as dictinary of lists
 
@@ -524,10 +523,9 @@ class Agent:
         self.is_test = False
 
         for epoch in range(1,epochs+1):
-            state = env.reset() #reset the environment for each iteration
+            state = self.env.reset() #reset the environment for each iteration
             done = False
             ep_return = 0
-            ep_reward_intrinsic = 0
             ep_loss = 0
 
             while not done:
@@ -550,7 +548,6 @@ class Agent:
                     ep_loss += loss
 
                 state = next_state #did the training, now move on with next state
-                end_whole = time.time() - start_whole
                 #print(f"whole took {end_whole}")
                 #print(f"Got here, episode return={ep_return}, time step = {self.game_steps}")
 
@@ -589,14 +586,14 @@ class Agent:
         return stats
 
     #run something on the machine, and see how we perform
-    def test(self, env):
+    def test(self):
         self.is_test = True
 
         #recording video
         normal_env = self.env
         self.env = gym.wrappers.RecordVideo(self.env,video_folder=video_folder)
 
-        state = env.reset()
+        state = self.env.reset()
         done = False
         score = 0
 
@@ -604,9 +601,9 @@ class Agent:
         while not done:
             time.sleep(0.01) #by default it runs very quickly, so slow down
             action = self.get_action(state,test=True)
-            state,reward,done,info = env.step(action) #make the environment step through the game
+            state,reward,done, _ = self.env.step(action) #make the environment step through the game
             score += reward
-            env.render()
+            self.env.render()
         print("score: ",score)
 
         self.env.close()
