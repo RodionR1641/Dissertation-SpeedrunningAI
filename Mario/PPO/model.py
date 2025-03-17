@@ -19,29 +19,23 @@ class MarioNet(nn.Module):
             nn.Flatten(),
             #linear layer that takes input of the flattened features
             layer_init(nn.Linear(64*7*7, 512)), # get reduced into a 7x7 image with 64 channels 
-            # TODO: rewrite this to be better and programatical e.g. get_flat_size() function 
             nn.ReLU(),
         )
-        # TODO: may need more layers here, and more than 512
-        self.actor = layer_init(nn.Linear(512, envs.single_action_space.n), std=0.01)
-        self.critic = layer_init(nn.Linear(512,1), std=1)
-        """
+        #self.actor = layer_init(nn.Linear(512, envs.single_action_space.n), std=0.01)
+        #self.critic = layer_init(nn.Linear(512,1), std=1)
+        
         self.critic = nn.Sequential(
-            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(),64)), #input shape to first layer is product of obesrvation space
-            nn.Tanh(),
-            layer_init(nn.Linear(64,64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64,1) , std=1.), #output linear layer uses 1 as a standard deviation
+            layer_init(nn.Linear(512,512)), #input shape to first layer is product of obesrvation space
+            nn.ReLU(),
+            layer_init(nn.Linear(512,1) , std=1.0), #output linear layer uses 1 as a standard deviation
         )
         # actor here . std=0.01 so that layer parameters have similar values so probabilty of taking each action is similar
         self.actor = nn.Sequential(
-            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(),64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64,64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64,envs.single_action_space.n) , std=0.01),
+            layer_init(nn.Linear(512,512)),
+            nn.ReLU(),
+            layer_init(nn.Linear(512,envs.single_action_space.n) , std=0.01),
         )
-        """
+        
     
     def get_value(self,x):
         #divide by 255 -> the image observation has a range 0-255, we get it range of 0 to 1
