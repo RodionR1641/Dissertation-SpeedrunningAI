@@ -3,8 +3,6 @@ import os
 import random
 import time
 from distutils.util import strtobool
-import copy
-
 import gym
 import numpy as np
 import torch
@@ -25,7 +23,7 @@ def parse_args():
         help="the id of the gym environment")
     parser.add_argument("--learning-rate", type=float, default=2.5e-4,
         help="the learning rate of the optimizer")
-    parser.add_argument("--seed", type=int, default=1,
+    parser.add_argument("--seed", type=int, default=777,
         help="seed of the experiment")
     parser.add_argument("--total-timesteps", type=int, default=10_000_000, # 10 million timesteps
         help="total timesteps of the experiments")
@@ -82,7 +80,6 @@ def parse_args():
     args = parser.parse_args()
     args.batch_size = int(args.num_envs * args.num_steps) # the total batch size for learning, split into minibatches
     args.minibatch_size = int(args.batch_size // args.num_minibatches) # minibatches used for training
-    # fmt: on
     return args
 
 
@@ -96,6 +93,16 @@ def make_env(gym_id,seed,environment_num,cap_video,name):
         return env    
     return one_env
 
+#seed setup for reproducibility
+def seed_run():
+    torch.manual_seed(args.seed)
+    if torch.backends.cudnn.enabled:
+        torch.cuda.manual_seed(args.seed)
+        #torch.backends.cudnn.benchmark = False # could be useful for reproducibility, but setting to False affects performance
+        torch.backends.cudnn.deterministic = args.torch_deterministic
+    
+    np.random.seed(args.seed)
+    random.seed(args.seed)
 
 if __name__ == "__main__":
     args = parse_args()
@@ -124,10 +131,7 @@ if __name__ == "__main__":
         writer.add_scalar("test_loss", i*2 ,global_step=i)
     
     #seeding
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.backends.cudnn.deterministic = args.torch_deterministic
+    seed_run()
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
     print("device PPO: ",device)

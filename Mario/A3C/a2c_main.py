@@ -1,6 +1,9 @@
-import gym
+import argparse
 import numpy as np
 from a2c_agent import Agent
+from distutils.util import strtobool
+from torch.utils.tensorboard import SummaryWriter
+from gym.wrappers import RecordVideo
 import logging
 import numpy as np
 import time
@@ -9,32 +12,11 @@ import logging
 import datetime
 import random
 import torch
-import sys
 import time
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from gym.vector import SyncVectorEnv
 import cProfile
 
-print(os.getcwd())
-#sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-#sys.path.append('../')
-from mario import Mario
-from plot import LivePlot
-
-log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
-os.makedirs(log_dir, exist_ok=True)
-
-# Define log file name (per process)
-rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-log_file = os.path.join(log_dir, f"experiment_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_rank{rank}.log")
-
-# Configure logging
-logging.basicConfig(
-    filename=log_file,
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
 
 def print_info():
     print("starting logging")
@@ -54,30 +36,89 @@ def print_info():
         logging.info("cuda not available")
 
 
-def make_env(device,seed=None):
+def parse_args():
+    # fmt: off
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--exp-name", type=str, default=os.path.basename(__file__).rstrip(".py"),
+        help="the name of this experiment")
+    parser.add_argument("--gym-id", type=str, default="SuperMarioBros-1-1-v0",
+        help="the id of the gym environment")
+    parser.add_argument("--seed", type=int, default=777,
+        help="seed of the experiment")
+    parser.add_argument("--torch-deterministic", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True, #reproduce experiments
+        help="if toggled, `torch.backends.cudnn.deterministic=False`")
+    parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+        help="if toggled, cuda will be enabled by default")
+    
+    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+        help="if toggled, this experiment will be tracked with Weights and Biases")
+    parser.add_argument("--wandb-project-name", type=str, default="a2c-experiment",
+        help="the wandb's project name")
+    parser.add_argument("--wandb-entity", type=str, default=None,
+        help="the entity (team) of wandb's project")
+    parser.add_argument("--capture-video", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+        help="weather to capture videos of the agent performances (check out `videos` folder)")
+
+    
+    # Algorithm specific arguments
+    parser.add_argument("--num-envs", type=int, default=8, #number of sub environments in a vector environment
+        help="the number of parallel game environments")
+    parser.add_argument("--gamma", type=float, default=0.99,
+        help="the discount factor gamma")
+    parser.add_argument("--learning-rate", type=float, default=1e-5,
+        help="the learning rate of the optimizer")
+    parser.add_argument("--n-epochs", type=int, default=100_000,
+        help="total timesteps of the experiments")
+    
+    args = parser.parse_args()
+    return args
+
+def main():
+    print_info()
+    testing = False
+    os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
+    run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    seed = 777
+    seed_run(seed)
+
+    env = SyncVectorEnv(
+        [make_env(args.gym_id, seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
+    )#vectorised environment
+
+    if(testing):
+        pass
+    else:
+        train(env=env,device=device,args=args)
+
+def make_env(gym_id,seed,environment_num,cap_video,name):
     def one_env():
-        env = Mario(device=device)
-        env.seed = seed
+        env = Mario(env_id=gym_id,seed=seed)
+        if(cap_video):
+            if environment_num == 0:
+                env = RecordVideo(env,f"videos/{name}")
         return env    
     return one_env
 
-def seed_run(seed):
-    torch.manual_seed(seed)
+def seed_run():
+    torch.manual_seed(args.seed)
     if torch.backends.cudnn.enabled:
-        torch.cuda.manual_seed(seed)
-        torch.backends.cudnn.benchmark = False
-        torch.backends.cudnn.deterministic = True
+        torch.cuda.manual_seed(args.seed)
+        #torch.backends.cudnn.benchmark = False # could be useful for reproducibility, but setting to False affects performance
+        torch.backends.cudnn.deterministic = args.torch_deterministic
     
-    np.random.seed(seed)
-    random.seed(seed)
+    np.random.seed(args.seed)
+    random.seed(args.seed)
 
-def train(env,device,num_envs=1):
-    alpha = 1e-5
-    gamma = 0.99
+def train(env,device,args,num_envs=1):
+    alpha = args.learning_rate
+    gamma = args.gamma
     n_actions = env.envs[0].action_num
     agent = Agent(input_shape=env.envs[0].observation_space.shape,lr_rate=alpha,n_actions=n_actions,gamma=gamma)
 
-    n_epochs = 10000
+    n_epochs = args.n_epochs
     plotter = LivePlot()   
     
     stats = {"Returns":[],"Loss": [],"AverageLoss": []}
@@ -139,20 +180,46 @@ def train(env,device,num_envs=1):
 
 
 def main():
-    
+    print_info()
     testing = False
     os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
+    run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    seed = 999
-    seed_run(seed)
-    num_envs = 8
-    env = SyncVectorEnv([make_env(device=device,seed=seed) for _ in range(num_envs)])
+    seed_run()
+
+    env = SyncVectorEnv(
+        [make_env(args.gym_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
+    )#vectorised environment
 
     if(testing):
         pass
     else:
-        train(env=env,device=device)
+        train(env=env,device=device,args=args)
 
-main()
+
+if __name__ == "__main__":
+    args = parse_args()
+    print(os.getcwd())
+    #sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+    #sys.path.append('../')
+    from mario import Mario
+    from plot import LivePlot
+
+    log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
+    os.makedirs(log_dir, exist_ok=True)
+
+    # Define log file name (per process)
+    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+    log_file = os.path.join(log_dir, f"experiment_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_rank{rank}.log")
+
+    # Configure logging
+    logging.basicConfig(
+        filename=log_file,
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+    )
+
+    main()

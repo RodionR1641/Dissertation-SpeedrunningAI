@@ -11,7 +11,7 @@ import random
 class Mario(gym.Wrapper):
     #rgb_array gives pixel info of game for us to work with
     # human mode actually allows to see
-    def __init__(self,device='cpu',env_id="SuperMarioBros-1-1-v0",seed=None):
+    def __init__(self,env_id="SuperMarioBros-1-1-v0",seed=None):
         RIGHT_ONLY.append(['down']) #there is a skip on some levels mario can make with a down action
         
         env = gym_super_mario_bros.make(env_id)
@@ -44,7 +44,6 @@ class Mario(gym.Wrapper):
 
         self.action_num = len(RIGHT_ONLY)
         self.env = env
-        self.device = device
 
 
     """
