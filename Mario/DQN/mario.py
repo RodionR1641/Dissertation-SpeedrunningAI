@@ -11,7 +11,7 @@ from gym.wrappers import GrayScaleObservation, ResizeObservation, FrameStack, Re
 class DQN_Mario(gym.Wrapper):
     #rgb_array gives pixel info of game for us to work with
     # human mode actually allows to see
-    def __init__(self,use_vit=False,seed=None,repeat=4):
+    def __init__(self,use_vit=False,seed=None,rnd=False):
         env = gym_super_mario_bros.make("SuperMarioBros-1-1-v0")
         SIMPLE_MOVEMENT.append(['down']) #there is a skip on some levels mario can make with a down action
         env = JoypadSpace(env, SIMPLE_MOVEMENT)
@@ -24,6 +24,9 @@ class DQN_Mario(gym.Wrapper):
         #aply wrappers for statistics
         env = RecordEpisodeStatistics(env) #record statistics of episode return
 
+        #sticky actions were useful for RND in papers shown for PPO, maybe here too
+        if rnd:
+            env = StickyActionEnv(env)
         #take random number of NOOPs on reset. overwrite reset function, sample random number of noops between 0 and 30, execute the noop and then return
         # add stochasticity to environment
         env = NoopResetEnv(env=env,noop_max=30,rng_gen=self.random_gen)
@@ -50,42 +53,6 @@ class DQN_Mario(gym.Wrapper):
 
         self.action_num = len(SIMPLE_MOVEMENT)
         self.env = env
-
-    #take action on an environment ->returns a state 
-    def step(self,action):
-        total_reward = 0.0
-        done = False
-        
-        for _ in range(self.repeat):
-            state,reward,done, info = self.env.step(action) # the reward function e.g. for breakout, is defined within that 
-            #environment. In breakout, breaking a brick gives a reward
-            total_reward += reward 
-
-            #print(f"lives: {self.lives}, Total reward: {total_reward}")
-            if done:
-                break
-        
-        # since the same action is repeated for x steps, can delete by self.repeat to "normalise" it
-        #converting total_reward and done into tensors now. (1,-1) tensor is a single row tensor
-        #why? -> neural networks operate on Tensors, not scalars. Standardising the reward shape etc is useful for batching.
-        #a single tensor may have size (1,1), in a batch these tensors can then have shape (batch_size,1)
-        #total_reward is float
-
-        #why return these?
-        #total_reward: feedback for learnng
-        #done: indicate if game finished so episode can end
-        return state,total_reward,done,info
-
-    #2 functions we use the most -> reset and step
-    #reset is to bring it back to setup state
-    #overriding it here compared to default
-    def reset(self):
-        state = self.env.reset()
-
-        self.lives = 3
-        #initial state
-
-        return state
 
 
 class NoopResetEnv(gym.Wrapper):
@@ -211,3 +178,21 @@ class EpisodicLifeEnv(gym.Wrapper):
                 obs = self.env.reset(**kwargs)
         self.lives = self.env.unwrapped._life  # type: ignore[attr-defined]
         return obs
+    
+# a small probability to repeat the same action as before
+class StickyActionEnv(gym.Wrapper):
+    def __init__(self, env, p=0.25):
+        super(StickyActionEnv, self).__init__(env)
+        self.p = p
+        self.last_action = 0
+
+    def step(self, action):
+        if np.random.uniform() < self.p:
+            action = self.last_action
+
+        self.last_action = action
+        return self.env.step(action)
+
+    def reset(self):
+        self.last_action = 0
+        return self.env.reset()
