@@ -400,7 +400,7 @@ class Agent_Rainbow_RND:
 
     def step_env(self,action,intrinsic_reward=None):
         next_state,reward,done, _ = self.env.step(action)
-
+        extrinsic_reward = reward
         if intrinsic_reward:
             reward += intrinsic_reward #total reward is extrinsic(from env) + intrinsic reward
 
@@ -416,7 +416,7 @@ class Agent_Rainbow_RND:
                 self.memory.insert(*one_step_transition)
         
         #return both the total reward and true reward(extrinsic) for stats
-        return next_state,reward,done
+        return next_state,reward,extrinsic_reward,done
     
     #update by gradient descent and calculate loss her
     def update_model(self):
@@ -532,8 +532,9 @@ class Agent_Rainbow_RND:
 
     #epochs = how many iterations to train for
     def train(self, epochs):
-        #see how the model is doing over time
-        stats = {"Total Rewards":[],"Intrinsic Rewards":[],"Loss": [],"AverageLoss": [], "TimeStep": []} #store as dictinary of lists
+        #see how the model is doing over time. Have separate storage for extrinsic and intrinsic loss
+        stats = {"Total Rewards":[],"Intrinsic Rewards":[],"Loss": []
+                 ,"Extrinsic Rewards": [],"AverageLoss": [], "TimeStep": []} #store as dictinary of lists
 
         plotter = LivePlot()
         self.is_test = False
@@ -543,6 +544,7 @@ class Agent_Rainbow_RND:
             done = False
             ep_return = 0
             ep_reward_intrinsic = 0
+            ep_reward_extrinsic = 0
             ep_loss = 0
 
             while not done:
@@ -563,9 +565,9 @@ class Agent_Rainbow_RND:
                 #clamp the reward
                 intrinsic_reward = intrinsic_reward.clamp(-1.0,1.0).item() #keep the rewards clamped to not have too much effect
 
-                next_state,reward,done = self.step_env(action,intrinsic_reward=intrinsic_reward)
-                ep_return += reward#just the extrinsic and not intrinsic
-
+                next_state,reward,extrinsic_reward,done = self.step_env(action,intrinsic_reward=intrinsic_reward)
+                ep_return += reward#combined extrinsic and intrinsic
+                ep_reward_extrinsic += extrinsic_reward
                 ep_reward_intrinsic += intrinsic_reward
 
                 #PER: update beta, make it go closer to 1 as towards the end of training as we want 
@@ -584,6 +586,7 @@ class Agent_Rainbow_RND:
 
             stats["Total Rewards"].append(ep_return)
             stats["Intrinsic Rewards"].append(ep_reward_intrinsic)
+            stats["Extrinsic Rewards"].appen(ep_reward_extrinsic)
             stats["Loss"].append(ep_loss)
             stats["TimeStep"].append(self.game_steps)
 

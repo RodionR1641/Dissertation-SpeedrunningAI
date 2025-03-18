@@ -141,7 +141,7 @@ def train(env,device,args,num_envs=1):
             action = agent.choose_action(states) #get a list of actions chosen for each env
 
             next_states,rewards,dones,info = env.step(action)
-            game_steps += 1
+            game_steps += num_envs
 
             loss = agent.learn(states,rewards,next_states,dones)
 
@@ -153,7 +153,7 @@ def train(env,device,args,num_envs=1):
             if(game_steps % 100 == 0):
                 print(f"im here {game_steps}")
         
-        stats["Returns"].extend(ep_returns) #TODO: vectorised env, think how to append it here
+        stats["Returns"].extend(ep_returns) #append returns for all environments
         stats["Loss"].append(ep_losses)
         
         print("Total loss = "+str(ep_losses))
