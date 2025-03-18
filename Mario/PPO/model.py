@@ -6,7 +6,7 @@ from torch.distributions.categorical import Categorical
 
 # Note: PPO is meant to be run primarily on the CPU, so dont put this on gpu
 class MarioNet(nn.Module):
-    def __init__(self,envs,input_shape):
+    def __init__(self,envs,input_shape,device="cpu"):
         super(MarioNet,self).__init__()
         
         self.cnn = nn.Sequential(
@@ -35,13 +35,19 @@ class MarioNet(nn.Module):
             nn.ReLU(),
             layer_init(nn.Linear(1024,envs.single_action_space.n) , std=0.01),
         )
+        self.device = device
+        self.to(device)
         
     
     def get_value(self,x):
+        if x.device != self.device:
+            x.to(self.device)
         #divide by 255 -> the image observation has a range 0-255, we get it range of 0 to 1
         return self.critic(self.cnn(x / 255.0)) #go through cnn first then critic
 
     def get_action_plus_value(self,x,action=None):  
+        if x.device != self.device:
+            x.to(self.device)
         #divide by 255 -> the image observation has a range 0-255, we get it range of 0 to 1
         hidden = self.cnn(x / 255.0) #get the hidden layer output, after CNN input
         logits = self.actor(hidden) #unnormalised action probabilities

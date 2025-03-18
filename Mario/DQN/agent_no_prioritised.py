@@ -189,9 +189,6 @@ class Agent:
         # linear decay : 
         self.epsilon = max(self.epsilon * self.epsilon_decay, self.min_epsilon)
 
-        #exponential decay
-        #self.epsilon = self.min_epsilon + (self.init_epsilon - self.min_epsilon) * np.exp(-self.epsilon_decay * episode)
-
     def sync_networks(self):
         if self.game_steps % self.sync_network_rate == 0 and self.game_steps > 0:
             self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
@@ -215,7 +212,6 @@ class Agent:
 
                 self.game_steps += 1
                 next_state,reward,done,_ = self.env.step(action)
-                #print(f"step took {end_step}")
                 #order of list matters
                 self.memory.insert(state, action, reward, next_state, done)
 

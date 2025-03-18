@@ -135,7 +135,7 @@ if __name__ == "__main__":
 
     assert isinstance(envs.single_action_space, gym.spaces.Discrete) #only for discrete actions here
 
-    ac_model = MarioNet(envs,input_shape=envs.envs[0].observation_space.shape).to(device) #actor critic model.
+    ac_model = MarioNet(envs,input_shape=envs.envs[0].observation_space.shape,device=device) #actor critic model.
 
     optimizer = optim.Adam(ac_model.parameters(), lr=args.learning_rate, eps=1e-5) #epsilon decay of 1e-5 for PPO
 

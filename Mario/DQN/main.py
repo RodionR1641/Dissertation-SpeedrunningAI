@@ -23,7 +23,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 use_vit = False
 
-environment = DQN_Mario(device=device,use_vit=use_vit)
+environment = DQN_Mario(use_vit=use_vit)
 
 num_actions = environment.action_num
 

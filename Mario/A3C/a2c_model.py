@@ -55,7 +55,7 @@ class ActorCritic(nn.Module):
     def get_flat_size(self,input_shape):
 
         with torch.no_grad():#no gradient computation, just a dummy pass
-            dummy_input = torch.zeros(1,*input_shape)
+            dummy_input = torch.zeros(1,*input_shape).to(self.device)
             x = self.conv1(dummy_input)
             x = self.conv2(x)
             x = self.conv3(x)

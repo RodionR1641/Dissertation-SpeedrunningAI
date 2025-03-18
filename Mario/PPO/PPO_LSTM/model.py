@@ -6,7 +6,7 @@ from torch.distributions.categorical import Categorical
 
 # Note: PPO is meant to be run primarily on the CPU, so dont put this on gpu
 class MarioNet(nn.Module):
-    def __init__(self,envs,input_shape):
+    def __init__(self,envs,input_shape,device="cpu"):
         super(MarioNet,self).__init__()
         
         self.cnn = nn.Sequential(
@@ -32,6 +32,9 @@ class MarioNet(nn.Module):
         # TODO: may need more layers here, and more than 512
         self.actor = layer_init(nn.Linear(128, envs.single_action_space.n), std=0.01)
         self.critic = layer_init(nn.Linear(128,1), std=1)
+        
+        self.device = device
+        self.to(device)
         """
         self.critic = nn.Sequential(
             layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(),64)), #input shape to first layer is product of obesrvation space
@@ -71,12 +74,18 @@ class MarioNet(nn.Module):
         return new_hidden, lstm_state
     
     def get_value(self,x,lstm_state,done):
+        if x.device != self.device:
+            x.to(self.device)
+        x = x/255.0
         hidden, _ = self.get_states(x, lstm_state,done)
         #divide by 255 -> the image observation has a range 0-255, we get it range of 0 to 1
         return self.critic(hidden) #go through cnn first then critic
 
     def get_action_plus_value(self,x,lstm_state,done,action=None):  
-        #divide by 255 -> the image observation has a range 0-255, we get it range of 0 to 1
+        if x.device != self.device:
+            x.to(self.device)
+        x = x/255.0#divide by 255 -> the image observation has a range 0-255, we get it range of 0 to 1
+
         hidden, lstm_state = self.get_states(x,lstm_state,done) #get the hidden layer output, after CNN input
         logits = self.actor(hidden) #unnormalised action probabilities
         probabilities = Categorical(logits=logits) #softmax operation to get the action probability distribution we need
@@ -85,7 +94,6 @@ class MarioNet(nn.Module):
         #return actions, log probabilities, entropies and values from critic
         return action,probabilities.log_prob(action), probabilities.entropy(),self.critic(hidden), lstm_state
 
-# TODO: go over this 
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0): #use sqrt 2 as standard deviation
     torch.nn.init.orthogonal_(layer.weight,std)
     torch.nn.init.constant_(layer.bias,bias_const)

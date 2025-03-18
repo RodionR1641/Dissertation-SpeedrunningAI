@@ -52,8 +52,8 @@ class MarioNet(nn.Module):
     def forward(self,x):
         #passing through the layers, starting with the raw image data
 
-        #x = torch.Tensor(x) #casting, make data in tensor format(the image)
-        x.to(self.device)
+        if x.device != self.device:
+            x.to(self.device)
         x = x/255.0 #normalise in range 0-1
         #relu used after conv layers(their output). 
         x = self.relu(self.conv1(x)) # relu takes value, anything under 0 gets nullified. Add non linearity
