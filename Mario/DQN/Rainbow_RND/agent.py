@@ -257,7 +257,7 @@ class PrioritisedMemory(ReplayBuffer):
 
 #plays the game
 #covers a lot of training
-class Agent:
+class Agent_Rainbow_RND:
     #nb_actions -> number of actions
     #memory_capacity -> number of previous transitions to store in replay buffers
     #batch_size -> how much is sampled at each time step for training

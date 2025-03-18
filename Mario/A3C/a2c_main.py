@@ -15,6 +15,8 @@ import torch
 import time
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from gym.vector import SyncVectorEnv
+from mario import Mario
+from plot import LivePlot
 import cProfile
 
 
@@ -57,7 +59,9 @@ def parse_args():
     parser.add_argument("--wandb-entity", type=str, default=None,
         help="the entity (team) of wandb's project")
     parser.add_argument("--capture-video", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
-        help="weather to capture videos of the agent performances (check out `videos` folder)")
+        help="whether to capture videos of the agent performances (check out `videos` folder)")
+    parser.add_argument("--testing", type=lambda x: bool(strtobool(x)), default= False, nargs="?", const=True,
+        help="set to true if just want to test the agent playing the game")
 
     
     # Algorithm specific arguments
@@ -181,7 +185,7 @@ def train(env,device,args,num_envs=1):
 
 def main():
     print_info()
-    testing = False
+    testing = args.testing
     os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
     run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
 
@@ -205,8 +209,6 @@ if __name__ == "__main__":
     #sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
     #sys.path.append('../')
-    from mario import Mario
-    from plot import LivePlot
 
     log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
     os.makedirs(log_dir, exist_ok=True)

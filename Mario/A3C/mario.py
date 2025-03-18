@@ -23,9 +23,10 @@ class Mario(gym.Wrapper):
         #take random number of NOOPs on reset. overwrite reset function, sample random number of noops between 0 and 30, execute the noop and then return
         # add stochasticity to environment
         
-
-        self.seed = seed
-        self.random_gen = random.Random(self.seed)
+        env.seed(seed)
+        env.action_space.seed(seed)
+        env.observation_space.seed(seed)
+        self.random_gen = random.Random()
 
         #env = NoopResetEnv(env=env,noop_max=30,rng_gen=self.random_gen)
         
