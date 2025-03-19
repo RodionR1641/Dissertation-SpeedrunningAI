@@ -295,11 +295,11 @@ class Agent_Rainbow:
                  use_vit=False,
                  ):
         
-        """
+        
         if os.path.exists("models"):
             self.model.load_model(device=device)
             self.target_model.load_model(device=device)
-        """
+            
         self.device = device
 
         self.nb_actions = nb_actions

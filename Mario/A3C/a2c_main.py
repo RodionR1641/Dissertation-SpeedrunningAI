@@ -13,7 +13,6 @@ import datetime
 import random
 import torch
 import time
-from stable_baselines3.common.vec_env import SubprocVecEnv
 from gym.vector import SyncVectorEnv
 from mario import Mario
 from plot import LivePlot
@@ -71,7 +70,7 @@ def parse_args():
         help="the discount factor gamma")
     parser.add_argument("--learning-rate", type=float, default=1e-5,
         help="the learning rate of the optimizer")
-    parser.add_argument("--n-epochs", type=int, default=100_000,
+    parser.add_argument("--n-epochs", type=int, default=200_000,
         help="total timesteps of the experiments")
     
     args = parser.parse_args()

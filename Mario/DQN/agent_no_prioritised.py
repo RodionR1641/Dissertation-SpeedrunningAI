@@ -132,11 +132,11 @@ class Agent:
             self.model = MarioNet(input_dims,nb_actions=nb_actions,device=device)
         self.target_model = copy.deepcopy(self.model).eval() #when we work with q learning, want a model and another model we can evaluate of off. Part of Dueling deep Q
         
-        """
+        
         if os.path.exists("models"):
             self.model.load_model(device=device)
             self.target_model.load_model(device=device)
-        """
+        
         self.device = device
         self.model.to(self.device)
         self.target_model.to(self.device)
