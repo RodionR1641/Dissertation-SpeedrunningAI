@@ -57,7 +57,7 @@ def parse_args():
     parser.add_argument("--testing", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="tells whether training or testing agent")
     
-    parser.add_argument("--agent-type", type=int, default=0,
+    parser.add_argument("--agent-type", type=int, default=1,
         help="tells which DQN agent to use: 0=dueling double, 1=rainbow, 2=rainbow with RND")
     
     parser.add_argument("--num-epochs", type=int, default=200_000,

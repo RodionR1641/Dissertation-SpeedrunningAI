@@ -21,7 +21,7 @@ os.makedirs(log_dir, exist_ok=True)
 
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-log_file = os.path.join(log_dir, f"experiment_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_rank{rank}.log")
+log_file = f"rainbow_rnd_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_rank{rank}.log"
 video_folder = "" #TODO: make a folder here
 
 # Configure logging
@@ -279,7 +279,7 @@ class Agent_Rainbow_RND:
                  nb_actions=5,
                  memory_capacity=50_000,
                  batch_size=32,
-                 learning_rate=0.00020,
+                 learning_rate=1e-5,
                  gamma=0.99,
                  sync_network_rate=10_000,
                  #Categorical DQN parameters
@@ -296,10 +296,6 @@ class Agent_Rainbow_RND:
                  use_vit=False,
                  ):
         
-        
-        if os.path.exists("models"):
-            self.model.load_model(device=device)
-            self.target_model.load_model(device=device)
         
         self.device = device
 
@@ -399,7 +395,7 @@ class Agent_Rainbow_RND:
             self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
 
     def step_env(self,action,intrinsic_reward=None):
-        next_state,reward,done, _ = self.env.step(action)
+        next_state,reward,done, info = self.env.step(action)
         extrinsic_reward = reward
         if intrinsic_reward:
             reward += intrinsic_reward #total reward is extrinsic(from env) + intrinsic reward
@@ -416,7 +412,11 @@ class Agent_Rainbow_RND:
                 self.memory.insert(*one_step_transition)
         
         #return both the total reward and true reward(extrinsic) for stats
-        return next_state,reward,extrinsic_reward,done
+        return next_state,reward,extrinsic_reward,done, info
+
+    #set the tensorboard writer
+    def set_writer(self,writer):
+        self.writer = writer
     
     #update by gradient descent and calculate loss her
     def update_model(self):
@@ -533,10 +533,8 @@ class Agent_Rainbow_RND:
     #epochs = how many iterations to train for
     def train(self, epochs):
         #see how the model is doing over time. Have separate storage for extrinsic and intrinsic loss
-        stats = {"Total Rewards":[],"Intrinsic Rewards":[],"Loss": []
-                 ,"Extrinsic Rewards": [],"AverageLoss": [], "TimeStep": []} #store as dictinary of lists
+        stats = {"Total Rewards":[],"Loss": []} #store as dictinary of lists
 
-        plotter = LivePlot()
         self.is_test = False
 
         for epoch in range(1,epochs+1):
@@ -546,6 +544,8 @@ class Agent_Rainbow_RND:
             ep_reward_intrinsic = 0
             ep_reward_extrinsic = 0
             ep_loss = 0
+            loss_count = 0
+            loss = 0
 
             while not done:
                 action = self.get_action(state) #this will store the state and action in transition
@@ -565,7 +565,7 @@ class Agent_Rainbow_RND:
                 #clamp the reward
                 intrinsic_reward = intrinsic_reward.clamp(-1.0,1.0).item() #keep the rewards clamped to not have too much effect
 
-                next_state,reward,extrinsic_reward,done = self.step_env(action,intrinsic_reward=intrinsic_reward)
+                next_state,reward,extrinsic_reward,done, info = self.step_env(action,intrinsic_reward=intrinsic_reward)
                 ep_return += reward#combined extrinsic and intrinsic
                 ep_reward_extrinsic += extrinsic_reward
                 ep_reward_intrinsic += intrinsic_reward
@@ -579,40 +579,37 @@ class Agent_Rainbow_RND:
                 if self.memory.can_sample():    
                     loss = self.update_model()
                     ep_loss += loss
+                    loss_count += 1
 
                 state = next_state #did the training, now move on with next state
-                #print(f"whole took {end_whole}")
-                #print(f"Got here, episode return={ep_return}, time step = {self.game_steps}")
 
-            stats["Total Rewards"].append(ep_return)
-            stats["Intrinsic Rewards"].append(ep_reward_intrinsic)
-            stats["Extrinsic Rewards"].appen(ep_reward_extrinsic)
-            stats["Loss"].append(ep_loss)
-            stats["TimeStep"].append(self.game_steps)
+                if "episode" in info:
+                    self.writer.add_scalar("Charts/episodic_return", info["episode"]["r"], self.game_steps) 
+                    self.writer.add_scalar("Charts/episodic_length", info["episode"]["l"], self.game_steps)
 
-            #print("Total reward = "+str(ep_return))
+            self.writer.add_scalar("Charts/intrinsic_reward",intrinsic_reward,self.game_steps)
+            self.writer.add_scalar("Charts/extrinsic_reward",extrinsic_reward,self.game_steps)
+            self.writer.add_scalar("Charts/beta",self.beta,self.game_steps)
+            self.writer.add_scalar("Charts/epochs",epoch,self.game_steps)
             print("Total loss = "+str(ep_loss))
             print("intrinsic reward ="+str(ep_reward_intrinsic))
             print("Time Steps = "+str(self.game_steps))
 
+            if loss > 0 or loss_count > 0:
+                #average loss - more representitive
+                self.writer.add_scalar("losses/loss_episodic",ep_loss/loss_count,self.game_steps)
+                #last loss - up to date changes shown
+                self.writer.add_scalar("losses/loss",loss,self.game_steps)
+
             #gatherin stats
-            if epoch % 10 == 0:
+            if epoch % 100 == 0:
                 self.model.save_model() #save model every 10th epoch
-
-                #average_returns = np.mean(stats["Returns"][-100:]) #average of the last 100 returns
-                average_loss = np.mean(stats["Loss"][-100:])
-                #graph can turn too big if we try to plot everything through. Only update a graph data point for every 10 epochs
-
-                stats["AverageLoss"].append(average_loss)
 
                 if(len(stats["Loss"]) > 100):
                     logging.info(f"Epoch: {epoch} - Average loss: {np.mean(stats['Loss'][-100:])}  - TimeStep: {self.game_steps} ")
                 else:
                     #for the first 100 iterations, just return the episode return,otherwise return the average like above
                     logging.info(f"Epoch: {epoch} - Episode loss: {np.mean(stats['Loss'][-1:])}  - TimeStep: {self.game_steps} ")
-
-            if epoch % 100 == 0:
-                plotter.update_plot(stats)
             
             if epoch % 1000 == 0:
                 self.model.save_model(f"models/model_iter_{epoch}.pt") #saving the models, may see where the good performance was and then it might tank -> can copy

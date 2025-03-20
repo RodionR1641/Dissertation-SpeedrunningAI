@@ -238,8 +238,8 @@ if __name__ == "__main__":
             for item in info:
                 if "episode" in item.keys():#check if current env completed episode
                     print(f"global_step={global_step}, episodic_return={item['episode']['r']}") #episodic return total
-                    writer.add_scalar("charts/episodic_return", item["episode"]["r"], global_step) 
-                    writer.add_scalar("charts/episodic_length", item["episode"]["l"], global_step)# episodic length(number of steps)
+                    writer.add_scalar("Charts/episodic_return", item["episode"]["r"], global_step) 
+                    writer.add_scalar("Charts/episodic_length", item["episode"]["l"], global_step)# episodic length(number of steps)
                     break
             
         # use General Advantage Estimation(GAE) to do advantage estimation
@@ -422,7 +422,7 @@ if __name__ == "__main__":
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
         #measure stats
-        writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
+        writer.add_scalar("Charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
         
         #add average loss, more representitive
         writer.add_scalar("losses/loss_episodic", loss_total/loss_count, global_step)
@@ -441,7 +441,7 @@ if __name__ == "__main__":
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
         
         print("SPS:", int(global_step / (time.time() - start_time)))
-        writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+        writer.add_scalar("Charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
     envs.close()
     writer.close()

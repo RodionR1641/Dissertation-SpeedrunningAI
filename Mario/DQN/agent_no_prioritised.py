@@ -12,13 +12,11 @@ import datetime
 from model import MarioNet
 from model_mobile_vit import MarioNet_ViT
 import gym
-
-log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
-os.makedirs(log_dir, exist_ok=True)
+import wandb
 
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-log_file = os.path.join(log_dir, f"experiment_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_rank{rank}.log")
+log_file = f"dqn_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_rank{rank}.log"
 video_folder = "" #TODO: make a folder here
 
 # Configure logging
@@ -260,17 +258,17 @@ class Agent:
                     loss_count += 1
                     self.optimizer.step()
                     self.decay_epsilon() #decay epsilon at each step in environment
-                    self.writer.add_scalar("charts/epsilon",self.epsilon,self.game_steps)
 
                 if "episode" in info:
-                    self.writer.add_scalar("charts/episodic_return", info["episode"]["r"], self.game_steps) 
-                    self.writer.add_scalar("charts/episodic_length", info["episode"]["l"], self.game_steps)
+                    self.writer.add_scalar("Charts/episodic_return", info["episode"]["r"], self.game_steps) 
+                    self.writer.add_scalar("Charts/episodic_length", info["episode"]["l"], self.game_steps)
                     # episodic length(number of steps)
                         
                 state = next_state #did the training, now move on with next state
                 ep_return += reward
                 #print(f"Got here now, episode return={ep_return}, time step = {self.game_steps}")
 
+            # logging info
             stats["Returns"].append(ep_return)
             stats["Loss"].append(ep_loss)
 
@@ -280,7 +278,7 @@ class Agent:
             print("Time Steps = "+str(self.game_steps))
 
             #gatherin stats
-            if epoch % 10 == 0:
+            if epoch % 100 == 0:
                 self.model.save_model() #save model every 10th epoch
 
                 stats["Epsilon"].append(self.epsilon) #see where the epsilon was at. Do we see higher returns with high epsilon, or only when it dropped etc
@@ -290,16 +288,13 @@ class Agent:
                 else:
                     #for the first 100 iterations, just return the episode return,otherwise return the average like above
                     logging.info(f"Epoch: {epoch} - Episode loss: {np.mean(stats['Loss'][-1:])}  - Epsilon: {self.epsilon} ")
-
-            if epoch % 100 == 0:
-                plotter.update_plot(stats)
             
             if epoch % 1000 == 0:
                 self.model.save_model(f"models/model_iter_{epoch}.pt") #saving the models, may see where the good performance was and then it might tank -> can copy
                 #this in as the main model. Then can start retraining from this point if needed
 
-            self.writer.add_scalar("charts/learning_rate",self.optimizer.param_groups[0]["lr"], self.game_steps)
-            self.writer.add_scalar("charts/episode_num",epoch,self.game_steps)
+            self.writer.add_scalar("Charts/epochs",epoch,self.game_steps)
+            self.writer.add_scalar("Charts/epsilon",self.epsilon,self.game_steps)
 
             if loss > 0 or loss_count > 0:
                 #average loss - more representitive
@@ -310,6 +305,10 @@ class Agent:
                 self.writer.add_scalar("losses/loss",loss.item(),self.game_steps)
 
         self.env.close()
+        #save log file on cloud
+        log_artifact = wandb.Artifact(name="dqn_log", type="logs")
+        log_artifact.add_file(log_file)
+        wandb.log_artifact(log_artifact)
         return stats
     
 
