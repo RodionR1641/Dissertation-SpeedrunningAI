@@ -13,6 +13,8 @@ from torch.utils.tensorboard import SummaryWriter
 from gym.wrappers import RecordVideo
 from mario import Mario
 from model import MarioNet
+import wandb
+from wandb.integration.tensorboard import patch
 
 def parse_args():
     # fmt: off
@@ -33,7 +35,7 @@ def parse_args():
         help="if toggled, cuda will be enabled by default")
     
     #
-    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
     parser.add_argument("--wandb-project-name", type=str, default="ppo-implementation-details",
         help="the wandb's project name")
@@ -109,18 +111,17 @@ if __name__ == "__main__":
     run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
 
     if args.track:
-        import wandb #wanbd allows to track info related to our experiment on the cloud
-
+        #wanbd allows to track info related to our experiment on the cloud
         wandb.init(
             project=args.wandb_project_name,
             entity=args.wandb_entity,
-            sync_tensorboard=True,
             config=vars(args),
             name=run_name,
-            monitor_gym=True,
-            save_code=True,
+            monitor_gym=False, #monitors videos, but for old gym. Doesnt work now
+            save_code=True
         )
 
+    patch() #make sure tensorboard graphs are saved to wandb
     #visualisation toolkit to visualise training - Tensorboard, allows to see the metrics like loss and see hyperparameters
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(

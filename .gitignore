@@ -5,3 +5,7 @@ __pycache__
 Mario/PPO/runs/
 Mario/PPO/wandb/
 *.pt
+/runs/
+/videos/
+/wandb/
+/models/
