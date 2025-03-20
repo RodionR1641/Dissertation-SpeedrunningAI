@@ -14,7 +14,8 @@ import argparse
 import datetime
 import logging
 import time
-
+import wandb
+from wandb.integration.tensorboard import patch
 
 def print_info():
     print("starting logging")
@@ -37,8 +38,6 @@ def print_info():
 def parse_args():
     # fmt: off
     parser = argparse.ArgumentParser()
-    parser.add_argument("--exp-name", type=str, default=os.path.basename(__file__).rstrip(".py"),
-        help="the name of this experiment")
     parser.add_argument("--gym-id", type=str, default="SuperMarioBros-1-1-v0",
         help="the id of the gym environment")
     parser.add_argument("--seed", type=int, default=777,
@@ -47,9 +46,9 @@ def parse_args():
         help="if toggled, `torch.backends.cudnn.deterministic=False`")
     parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, cuda will be enabled by default")
-    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
-    parser.add_argument("--wandb-project-name", type=str, default="DQN-experiments",
+    parser.add_argument("--wandb-project-name", type=str, default="RL Mario",
         help="the wandb's project name")
     parser.add_argument("--wandb-entity", type=str, default=None,
         help="the entity (team) of wandb's project")
@@ -58,7 +57,7 @@ def parse_args():
     parser.add_argument("--testing", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="tells whether training or testing agent")
     
-    parser.add_argument("--agent-type", type=int, default=2,
+    parser.add_argument("--agent-type", type=int, default=0,
         help="tells which DQN agent to use: 0=dueling double, 1=rainbow, 2=rainbow with RND")
     
     parser.add_argument("--num-epochs", type=int, default=200_000,
@@ -121,6 +120,7 @@ def seed_run():
 if __name__ == "__main__":
 
     args = parse_args()
+
     print(os.getcwd())
 
 
@@ -141,7 +141,6 @@ if __name__ == "__main__":
     print_info()
     os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
 
     #parser args setup and seed
     use_vit = args.use_vit
@@ -166,7 +165,9 @@ if __name__ == "__main__":
                     learning_rate=args.learning_rate,
                     gamma=args.gamma,
                     sync_network_rate=args.sync_network_rate,
-                    use_vit=args.use_vit)
+                    use_vit=args.use_vit
+                    )
+        exp_name = "DQN experiment"
         
     elif agent_type == 1:
         agent = Agent_Rainbow(input_dims=environment.observation_space.shape,
@@ -185,9 +186,9 @@ if __name__ == "__main__":
                     beta=args.beta,
                     prior_eps=args.prior_eps,
                     n_step=args.n_step,
-                    use_vit=args.use_vit
+                    use_vit=args.use_vit)
+        exp_name = "Rainbow experiment"
 
-        )
     elif agent_type == 2:
         agent = Agent_Rainbow_RND(input_dims=environment.observation_space.shape,
                     env=environment,
@@ -205,11 +206,36 @@ if __name__ == "__main__":
                     beta=args.beta,
                     prior_eps=args.prior_eps,
                     n_step=args.n_step,
-                    use_vit=args.use_vit
-        )
+                    use_vit=args.use_vit)
+        exp_name = "Rainbow RND experiment"
+
     else:
         print("error - invalid agent_type")
         exit()
+    
+    run_name = f"{args.gym_id}__{exp_name}__{args.seed}__{int(time.time())}"
+
+    if args.track:
+        #wanbd allows to track info related to our experiment on the cloud
+        wandb.init(
+            project=args.wandb_project_name,
+            entity=args.wandb_entity,
+            config=vars(args),
+            name=run_name,
+            monitor_gym=False, #monitors videos, but for old gym. Doesnt work now
+            save_code=True
+        )
+
+
+    patch() #make sure tensorboard graphs are saved to wandb
+    #visualisation toolkit to visualise training - Tensorboard, allows to see the metrics like loss and see hyperparameters
+    writer = SummaryWriter(f"runs/{run_name}")
+    writer.add_text(
+        "hyperparameters",
+        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+    )
+
+    agent.set_writer(writer)
 
     if(testing):
         agent.test()

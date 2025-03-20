@@ -132,10 +132,11 @@ class Agent:
             self.model = MarioNet(input_dims,nb_actions=nb_actions,device=device)
         self.target_model = copy.deepcopy(self.model).eval() #when we work with q learning, want a model and another model we can evaluate of off. Part of Dueling deep Q
         
-        
+        """
         if os.path.exists("models"):
             self.model.load_model(device=device)
-            self.target_model.load_model(device=device)
+            self.target_model.load_model(device=device)"
+        """
         
         self.device = device
         self.model.to(self.device)
@@ -193,7 +194,10 @@ class Agent:
         if self.game_steps % self.sync_network_rate == 0 and self.game_steps > 0:
             self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
 
-
+    #set the tensorboard writer
+    def set_writer(self,writer):
+        self.writer = writer
+    
     #epochs = how many iterations to train for
     def train(self, epochs):
         #see how the model is doing over time
@@ -206,12 +210,14 @@ class Agent:
             done = False
             ep_return = 0
             ep_loss = 0
+            loss = 0
+            loss_count = 0
 
             while not done:
                 action = self.get_action(state)
 
                 self.game_steps += 1
-                next_state,reward,done,_ = self.env.step(action)
+                next_state,reward,done,info = self.env.step(action)
                 #order of list matters
                 self.memory.insert(state, action, reward, next_state, done)
 
@@ -251,9 +257,16 @@ class Agent:
                     loss = self.loss(qsa_b,target_b)
                     loss.backward()
                     ep_loss += loss.item()
+                    loss_count += 1
                     self.optimizer.step()
                     self.decay_epsilon() #decay epsilon at each step in environment
+                    self.writer.add_scalar("charts/epsilon",self.epsilon,self.game_steps)
 
+                if "episode" in info:
+                    self.writer.add_scalar("charts/episodic_return", info["episode"]["r"], self.game_steps) 
+                    self.writer.add_scalar("charts/episodic_length", info["episode"]["l"], self.game_steps)
+                    # episodic length(number of steps)
+                        
                 state = next_state #did the training, now move on with next state
                 ep_return += reward
                 #print(f"Got here now, episode return={ep_return}, time step = {self.game_steps}")
@@ -263,17 +276,13 @@ class Agent:
 
             #print("Total reward = "+str(ep_return))
             print("Total loss = "+str(ep_loss))
+            print("curr loss = "+str(loss))
             print("Time Steps = "+str(self.game_steps))
 
             #gatherin stats
             if epoch % 10 == 0:
                 self.model.save_model() #save model every 10th epoch
 
-                #average_returns = np.mean(stats["Returns"][-100:]) #average of the last 100 returns
-                average_loss = np.mean(stats["Loss"][-100:])
-                #graph can turn too big if we try to plot everything through. Only update a graph data point for every 10 epochs
-
-                stats["AverageLoss"].append(average_loss)
                 stats["Epsilon"].append(self.epsilon) #see where the epsilon was at. Do we see higher returns with high epsilon, or only when it dropped etc
 
                 if(len(stats["Loss"]) > 100):
@@ -288,7 +297,18 @@ class Agent:
             if epoch % 1000 == 0:
                 self.model.save_model(f"models/model_iter_{epoch}.pt") #saving the models, may see where the good performance was and then it might tank -> can copy
                 #this in as the main model. Then can start retraining from this point if needed
-        
+
+            self.writer.add_scalar("charts/learning_rate",self.optimizer.param_groups[0]["lr"], self.game_steps)
+            self.writer.add_scalar("charts/episode_num",epoch,self.game_steps)
+
+            if loss > 0 or loss_count > 0:
+                #average loss - more representitive
+            
+                self.writer.add_scalar("losses/loss_episodic",ep_loss/loss_count,self.game_steps)
+
+                #last loss - up to date changes shown
+                self.writer.add_scalar("losses/loss",loss.item(),self.game_steps)
+
         self.env.close()
         return stats
     

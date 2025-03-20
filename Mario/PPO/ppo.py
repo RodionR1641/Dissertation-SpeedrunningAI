@@ -8,7 +8,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.distributions.categorical import Categorical
 from torch.utils.tensorboard import SummaryWriter
 from gym.wrappers import RecordVideo
 from mario import Mario
@@ -37,7 +36,7 @@ def parse_args():
     #
     parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
-    parser.add_argument("--wandb-project-name", type=str, default="ppo-implementation-details",
+    parser.add_argument("--wandb-project-name", type=str, default="RL Mario",
         help="the wandb's project name")
     parser.add_argument("--wandb-entity", type=str, default=None,
         help="the entity (team) of wandb's project")
@@ -128,8 +127,6 @@ if __name__ == "__main__":
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
-    for i in range(100):
-        writer.add_scalar("test_loss", i*2 ,global_step=i)
     
     #seeding
     seed_run()
@@ -155,7 +152,6 @@ if __name__ == "__main__":
 
     optimizer = optim.Adam(ac_model.parameters(), lr=args.learning_rate, eps=1e-5) #epsilon decay of 1e-5 for PPO
 
-    #observations = envs.reset()
     """
     for _ in range(200):
         action = envs.action_space.sample()
@@ -201,8 +197,15 @@ if __name__ == "__main__":
     # KL divergence exceeds a thershold, this is to prevent the policy changing too drastically
     #each update is one iteration of the training loop
     for update in range(1,num_updates+1):
+        loss_total = 0
+        v_loss_total = 0
+        pg_loss_total = 0
+        entropy_loss_total = 0 
+        loss_count = 0
+
         #learning rate annealing - the learning rate of adam decays linearly. Papers show this annealing allows agents to obtain
         # higher episodic return
+
         if args.anneal_lr:
             frac = 1.0 - (update - 1.0) / num_updates # linearly decrease to 0 as update increases to num_updates
             curr_lr = frac * args.learning_rate
@@ -231,7 +234,7 @@ if __name__ == "__main__":
             rewards[step] = torch.tensor(reward).to(device).view(-1)# to gpu
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(done).to(device)   #reassign variables
 
-            #log episodic return and info
+            #log episodic return and info, this does it on vectorised envs 
             for item in info:
                 if "episode" in item.keys():#check if current env completed episode
                     print(f"global_step={global_step}, episodic_return={item['episode']['r']}") #episodic return total
@@ -393,6 +396,12 @@ if __name__ == "__main__":
                 # and value loss(higher value places more emphasis on accurate value predictions)
                 loss = pg_loss - args.ent_coef * entropy_loss + args.vf_coef * v_loss
 
+                loss_total += loss.item()
+                pg_loss_total += pg_loss.item()
+                v_loss_total += v_loss.item()
+                entropy_loss_total += entropy_loss.item()
+                loss_count += 1
+
                 #backpropagation and optimising now
                 optimizer.zero_grad()
                 loss.backward()
@@ -414,7 +423,15 @@ if __name__ == "__main__":
 
         #measure stats
         writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
-        writer.add_scalar("losses/combined_loss", loss.item(), global_step)
+        
+        #add average loss, more representitive
+        writer.add_scalar("losses/loss_episodic", loss_total/loss_count, global_step)
+        writer.add_scalar("losses/value_loss_episodic", v_loss_total/loss_count, global_step)
+        writer.add_scalar("losses/policy_loss_episodic", pg_loss_total/loss_count, global_step)
+        writer.add_scalar("losses/entropy_episodic", entropy_loss_total/loss_count, global_step)
+
+        #add last loss, useful for tracking quick changes
+        writer.add_scalar("losses/loss", loss.item(), global_step)
         writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
         writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
         writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
@@ -422,6 +439,7 @@ if __name__ == "__main__":
         writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
         writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
+        
         print("SPS:", int(global_step / (time.time() - start_time)))
         writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
