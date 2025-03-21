@@ -44,11 +44,11 @@ class ActorCritic(nn.Module):
 
         actor_pi = self.relu(self.actor_pi1(x))
         actor_pi = self.relu(self.actor_pi2(actor_pi))
-        actor_pi = self.actor_pi3(actor_pi)
+        actor_pi = self.actor_pi3(actor_pi) #shape [n_envs,n_acitions]
 
         critic_value = self.relu(self.critic_value1(x))
         critic_value = self.relu(self.critic_value2(critic_value))
-        critic_value = self.critic_value3(critic_value)
+        critic_value = self.critic_value3(critic_value) #shape [n_envs]
 
         return (actor_pi, critic_value) #return probabilities and critic value
 

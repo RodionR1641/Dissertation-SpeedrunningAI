@@ -12,27 +12,9 @@ from torch.utils.tensorboard import SummaryWriter
 from distutils.util import strtobool
 import argparse
 import datetime
-import logging
 import time
 import wandb
 from wandb.integration.tensorboard import patch
-
-def print_info():
-    print("starting logging")
-    logging.info(f"Process {rank} started training on GPUs")
-
-    if torch.cuda.is_available():
-        try:
-            logging.info(torch.cuda.current_device())
-            logging.info("GPU Name: " + torch.cuda.get_device_name(0))
-            logging.info("PyTorch Version: " + torch.__version__)
-            logging.info("CUDA Available: " + str(torch.cuda.is_available()))
-            logging.info("CUDA Version: " + str(torch.version.cuda))
-            logging.info("Number of GPUs: " + str(torch.cuda.device_count()))
-        except RuntimeError as e:
-            logging.info(f"{e}")
-    else:
-        logging.info("cuda not available")
 
 
 def parse_args():
@@ -123,22 +105,6 @@ if __name__ == "__main__":
 
     print(os.getcwd())
 
-
-    log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
-    #os.makedirs(log_dir, exist_ok=True)
-
-    # Define log file name (per process)
-    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-    log_file = os.path.join(log_dir, f"experiment_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_rank{rank}.log")
-
-    # Configure logging
-    logging.basicConfig(
-        filename=log_file,
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-    )
-
-    print_info()
     os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -167,7 +133,7 @@ if __name__ == "__main__":
                     sync_network_rate=args.sync_network_rate,
                     use_vit=args.use_vit
                     )
-        exp_name = "DQN experiment"
+        exp_name = "DQN_experiment"
         
     elif agent_type == 1:
         agent = Agent_Rainbow(input_dims=environment.observation_space.shape,
@@ -187,7 +153,7 @@ if __name__ == "__main__":
                     prior_eps=args.prior_eps,
                     n_step=args.n_step,
                     use_vit=args.use_vit)
-        exp_name = "Rainbow experiment"
+        exp_name = "Rainbow_experiment"
 
     elif agent_type == 2:
         agent = Agent_Rainbow_RND(input_dims=environment.observation_space.shape,
@@ -207,7 +173,7 @@ if __name__ == "__main__":
                     prior_eps=args.prior_eps,
                     n_step=args.n_step,
                     use_vit=args.use_vit)
-        exp_name = "Rainbow RND experiment"
+        exp_name = "Rainbow_RND_experiment"
 
     else:
         print("error - invalid agent_type")

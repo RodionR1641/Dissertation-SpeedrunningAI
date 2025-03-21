@@ -610,7 +610,8 @@ class Agent_Rainbow_RND:
                     logging.info(f"Epoch: {epoch} - Episode loss: {np.mean(stats['Loss'][-1:])}  - TimeStep: {self.game_steps} ")
             
             if epoch % 1000 == 0:
-                self.model.save_model(f"models/model_iter_{epoch}.pt") #saving the models, may see where the good performance was and then it might tank -> can copy
+                self.model.save_model(f"models/rainbow_rnd_iter_{epoch}.pt")
+                 #saving the models, may see where the good performance was and then it might tank -> can copy
                 #this in as the main model. Then can start retraining from this point if needed
         
         self.env.close()

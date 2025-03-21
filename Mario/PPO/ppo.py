@@ -14,11 +14,12 @@ from mario import Mario
 from model import MarioNet
 import wandb
 from wandb.integration.tensorboard import patch
+import datetime
 
 def parse_args():
     # fmt: off
     parser = argparse.ArgumentParser()
-    parser.add_argument("--exp-name", type=str, default=os.path.basename(__file__).rstrip(".py"),
+    parser.add_argument("--exp-name", type=str, default="PPO_experiment",
         help="the name of this experiment")
     parser.add_argument("--gym-id", type=str, default="SuperMarioBros-1-1-v0",
         help="the id of the gym environment")
@@ -107,7 +108,7 @@ def seed_run():
 
 if __name__ == "__main__":
     args = parse_args()
-    run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
     if args.track:
         #wanbd allows to track info related to our experiment on the cloud
@@ -237,9 +238,14 @@ if __name__ == "__main__":
             #log episodic return and info, this does it on vectorised envs 
             for item in info:
                 if "episode" in item.keys():#check if current env completed episode
-                    print(f"global_step={global_step}, episodic_return={item['episode']['r']}") #episodic return total
-                    writer.add_scalar("Charts/episodic_return", item["episode"]["r"], global_step) 
-                    writer.add_scalar("Charts/episodic_length", item["episode"]["l"], global_step)# episodic length(number of steps)
+                    episodic_reward = item["episode"]["r"]
+                    episodic_len = item["episode"]["l"]
+
+                    print(f"global_step={global_step}, episodic_return={episodic_reward}, episodic len={episodic_len}")
+
+                    writer.add_scalar("Charts/episodic_return", episodic_reward, global_step) 
+                    writer.add_scalar("Charts/episodic_length", episodic_len, global_step)
+                    # episodic length(number of steps)
                     break
             
         # use General Advantage Estimation(GAE) to do advantage estimation
@@ -416,14 +422,18 @@ if __name__ == "__main__":
                 if approx_kl > args.target_kl:
                     break
         
-
-        if update % 100 == 0:
-            print("Loss = " + str(loss.item()))
-            print("Time Step = " + str(global_step))
-            print("Reward = " + str(reward)) 
+        #logged output saved in wandb 
+        if update % 10 == 0:
+            print("")
+            print(f"Loss = {str(loss.item())}") 
+            print(f"Episodic Average Loss = {str(loss_total/loss_count)}")
+            print(f"Time Step = {str(global_step)}")
+            print("Last Reward = " + ', '.join(map(str, reward.flatten()))) 
+            print("")
             ac_model.save_model()  
+        
         if update % 1000 == 0:
-            ac_model.save_model()
+            ac_model.save_model(f"models/ppo_iter_{update}.pt")
 
         #debug variable:explained variance - indicate if the value function is a good indicator of the returns ///
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
@@ -453,5 +463,6 @@ if __name__ == "__main__":
         print("SPS:", int(global_step / (time.time() - start_time)))
         writer.add_scalar("Charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
+    ac_model.save_model()
     envs.close()
     writer.close()

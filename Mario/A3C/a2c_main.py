@@ -4,43 +4,39 @@ from a2c_agent import Agent
 from distutils.util import strtobool
 from torch.utils.tensorboard import SummaryWriter
 from gym.wrappers import RecordVideo
-import logging
 import numpy as np
-import time
 import os
-import logging
 import datetime
 import random
 import torch
-import time
 from gym.vector import SyncVectorEnv
 from mario import Mario
 from plot import LivePlot
-import cProfile
+import wandb
+from wandb.integration.tensorboard import patch
 
 
 def print_info():
-    print("starting logging")
-    logging.info(f"Process {rank} started training on GPUs")
+    print(f"Process {rank} started training on GPUs")
 
     if torch.cuda.is_available():
         try:
-            logging.info(torch.cuda.current_device())
-            logging.info("GPU Name: " + torch.cuda.get_device_name(0))
-            logging.info("PyTorch Version: " + torch.__version__)
-            logging.info("CUDA Available: " + str(torch.cuda.is_available()))
-            logging.info("CUDA Version: " + str(torch.version.cuda))
-            logging.info("Number of GPUs: " + str(torch.cuda.device_count()))
+            print(torch.cuda.current_device())
+            print("GPU Name: " + torch.cuda.get_device_name(0))
+            print("PyTorch Version: " + torch.__version__)
+            print("CUDA Available: " + str(torch.cuda.is_available()))
+            print("CUDA Version: " + str(torch.version.cuda))
+            print("Number of GPUs: " + str(torch.cuda.device_count()))
         except RuntimeError as e:
-            logging.info(f"{e}")
+            print(f"{e}")
     else:
-        logging.info("cuda not available")
+        print("cuda not available")
 
 
 def parse_args():
     # fmt: off
     parser = argparse.ArgumentParser()
-    parser.add_argument("--exp-name", type=str, default=os.path.basename(__file__).rstrip(".py"),
+    parser.add_argument("--exp-name", type=str, default="A2C_experiment",
         help="the name of this experiment")
     parser.add_argument("--gym-id", type=str, default="SuperMarioBros-1-1-v0",
         help="the id of the gym environment")
@@ -51,7 +47,7 @@ def parse_args():
     parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, cuda will be enabled by default")
     
-    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
     parser.add_argument("--wandb-project-name", type=str, default="a2c-experiment",
         help="the wandb's project name")
@@ -72,29 +68,16 @@ def parse_args():
         help="the learning rate of the optimizer")
     parser.add_argument("--n-epochs", type=int, default=200_000,
         help="total timesteps of the experiments")
+    parser.add_argument("--lam", type=float, default=0.95,
+        help="lam parameter of GAE"),
+    parser.add_argument("--ent-coef", type=float, default=0.01,
+        help="coefficient for entropy bonus (encourage exploration)"),
+    parser.add_argument("--n-steps-per-update", type=int, default=128,
+        help="coefficient for entropy bonus (encourage exploration)")
+    
     
     args = parser.parse_args()
     return args
-
-def main():
-    print_info()
-    testing = False
-    os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
-    run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
-
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-    seed = 777
-    seed_run(seed)
-
-    env = SyncVectorEnv(
-        [make_env(args.gym_id, seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
-    )#vectorised environment
-
-    if(testing):
-        pass
-    else:
-        train(env=env,device=device,args=args)
 
 def make_env(gym_id,seed,environment_num,cap_video,name):
     def one_env():
@@ -115,112 +98,132 @@ def seed_run():
     np.random.seed(args.seed)
     random.seed(args.seed)
 
-def train(env,device,args,num_envs=1):
+
+def train(env,device,args):
     alpha = args.learning_rate
     gamma = args.gamma
     n_actions = env.envs[0].action_num
-    agent = Agent(input_shape=env.envs[0].observation_space.shape,lr_rate=alpha,n_actions=n_actions,gamma=gamma)
+    n_steps_per_update = args.n_steps_per_update
+
+    lam = args.lam
+    ent_coef = args.ent_coef # coefficient for entropy bonus (encourage exploration)
+
+    agent = Agent(input_shape=env.envs[0].observation_space.shape,lr_rate=alpha,
+                  n_actions=n_actions,gamma=gamma,num_envs=num_envs)
 
     n_epochs = args.n_epochs
-    plotter = LivePlot()   
+
+    game_steps =0
     
-    stats = {"Returns":[],"Loss": [],"AverageLoss": []}
     for epoch in range(1,n_epochs+1):
 
+        # Reset lists to collect experiences
+        ep_value_preds = torch.zeros(n_steps_per_update, num_envs, device=device)
+        ep_rewards = torch.zeros(n_steps_per_update, num_envs, device=device)
+        ep_action_log_probs = torch.zeros(n_steps_per_update, num_envs, device=device)
+        masks = torch.zeros(n_steps_per_update, num_envs, device=device)
+
         states = env.reset()
-        dones = [False] * num_envs
-        ep_returns = [0] * num_envs
-        ep_losses = [0] * num_envs
-        game_steps = 0
-        
-        while not all(dones):
-            #make a state tensor here instead of doing it twice in choose action and learn method
+
+        for step in range(n_steps_per_update):
             states = torch.as_tensor(states, dtype=torch.float32,device=device)
-            
-            action = agent.choose_action(states) #get a list of actions chosen for each env
 
-            next_states,rewards,dones,info = env.step(action)
-            game_steps += num_envs
+            action, log_probs, state_value, entropy = agent.choose_action_entropy(states) #get a list of actions chosen for each env
+            next_states, rewards, dones, info = env.step(action)
 
-            loss = agent.learn(states,rewards,next_states,dones)
+            game_steps += num_envs #8 envs took a step
 
-            for i in range(num_envs):
-                ep_losses[i] += loss    
-                ep_returns[i] += rewards[i]
+            # Store experiences
+            ep_value_preds[step] = torch.squeeze(state_value)
+            ep_rewards[step] = torch.tensor(rewards, device=device)
+            ep_action_log_probs[step] = log_probs
+            masks[step] = torch.tensor([not done for done in dones], device=device)
 
             states = next_states
-            if(game_steps % 100 == 0):
-                print(f"im here {game_steps}")
+
+            #log episodic return and info, this does it on vectorised envs 
+            for item in info:
+                if "episode" in item.keys():#check if current env completed episode
+                    episodic_reward = item["episode"]["r"]
+                    episodic_len = item["episode"]["l"]
+
+                    print(f"global_step={game_steps}, episodic_return={episodic_reward}, episodic len={episodic_len}")
+                    writer.add_scalar("Charts/episodic_return", episodic_reward, game_steps) 
+                    writer.add_scalar("Charts/episodic_length", episodic_len, game_steps)
+                    # episodic length(number of steps)
+                    break
         
-        stats["Returns"].extend(ep_returns) #append returns for all environments
-        stats["Loss"].append(ep_losses)
-        
-        print("Total loss = "+str(ep_losses))
-        print("Time Steps = "+str(game_steps))
+        critic_loss, actor_loss = agent.get_losses(
+            ep_rewards,ep_action_log_probs,ep_value_preds,entropy,masks,gamma,lam,ent_coef
+        )
+
+        loss = agent.update_params(critic_loss,actor_loss)
+
+        writer.add_scalar("Charts/learning_rate", agent.optimiser.param_groups[0]["lr"], game_steps)
+        writer.add_scalar("Charts/epochs", epoch, global_step=game_steps)
+
+        #add last loss, useful for tracking quick changes
+        writer.add_scalar("losses/loss", loss, game_steps)
+
+        print("")
+        print(f"Loss = {str(loss)}")
+        print(f"Time Step = {str(game_steps)}")
+        print(f"Last Reward = "+ ', '.join(map(str, rewards.flatten())))
+        print("")
 
         if epoch % 10 == 0:
-            agent.save_models(weights_filename=f"models/a2c_latest_{alpha}_{gamma}.pt") #save model every 10th epoch
-
-            #average_returns = np.mean(stats["Returns"][-100:]) #average of the last 100 returns
-            average_loss = np.mean(stats["Loss"][-100:])
-            #graph can turn too big if we try to plot everything through. Only update a graph data point for every 10 epochs
-
-            stats["AverageLoss"].append(average_loss)
-
-            if(len(stats["Loss"]) > 100):
-                logging.info(f"Epoch: {epoch} - Average loss: {np.mean(stats['Loss'][-100:])} ")
-            else:
-                #for the first 100 iterations, just return the episode return,otherwise return the average like above
-                logging.info(f"Epoch: {epoch} - Episode loss: {np.mean(stats['Loss'][-1:])}")
+            agent.save_models() #save model every 10th epoch
 
         if epoch % 100 == 0:
-            plotter.update_plot(stats)
-        
-        if epoch % 1000 == 0:
-            agent.save_models(f"models/a2c_epoch{epoch}_{alpha}_{gamma}.pt")
+            agent.save_models(f"models/a2c_epoch{epoch}_{game_steps}.pt")
+    
+    agent.save_models()
+    env.close()
+    writer.close()
 
-    # can plot stuff here
+if __name__ == "__main__":
+    args = parse_args()
+    print(os.getcwd())
 
+    # Define log file name (per process)
+    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+    video_folder = "" #TODO: make a folder here
 
-def main():
     print_info()
     testing = args.testing
-    os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
-    run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+
+
+    if args.track:
+        #wanbd allows to track info related to our experiment on the cloud
+        wandb.init(
+            project=args.wandb_project_name,
+            entity=args.wandb_entity,
+            config=vars(args),
+            name=run_name,
+            monitor_gym=False, #monitors videos, but for old gym. Doesnt work now
+            save_code=True
+        )
+
+    patch() #make sure tensorboard graphs are saved to wandb
+    #visualisation toolkit to visualise training - Tensorboard, allows to see the metrics like loss and see hyperparameters
+    writer = SummaryWriter(f"runs/{run_name}")
+    writer.add_text(
+        "hyperparameters",
+        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+    )
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    testing = False
 
     seed_run()
+    num_envs = args.num_envs
 
     env = SyncVectorEnv(
-        [make_env(args.gym_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
+        [make_env(args.gym_id, args.seed + i, i, args.capture_video, run_name) for i in range(num_envs)]
     )#vectorised environment
 
     if(testing):
         pass
     else:
         train(env=env,device=device,args=args)
-
-
-if __name__ == "__main__":
-    args = parse_args()
-    print(os.getcwd())
-    #sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-    #sys.path.append('../')
-
-    log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
-    os.makedirs(log_dir, exist_ok=True)
-
-    # Define log file name (per process)
-    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-    log_file = os.path.join(log_dir, f"experiment_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_rank{rank}.log")
-
-    # Configure logging
-    logging.basicConfig(
-        filename=log_file,
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-    )
-
-    main()
