@@ -56,6 +56,23 @@ class MarioNet(nn.Module):
             action = probabilities.sample()
         #return actions, log probabilities, entropies and values from critic
         return action,probabilities.log_prob(action), probabilities.entropy(),self.critic(hidden)
+    
+    #these models take a while to train, want to save it and reload on start
+    def save_model(self, weights_filename="models/latest_ppo.pt"):
+        #state_dict() -> dictionary of the states/weights in a given model
+        # we override nn.Module, so this can be done
+        print("...saving checkpoint...")
+        if not os.path.exists("models"):
+            os.mkdir("models")
+        torch.save(self.state_dict(),weights_filename)
+    
+    def load_model(self, weights_filename="models/latest_ppo.pt",device="cpu"):
+        try:
+            self.load_state_dict(torch.load(weights_filename,map_location=device,weights_only=True))
+            print(f"Loaded weights filename: {weights_filename}")            
+        except Exception as e:
+            print(f"No weights filename: {weights_filename}")
+            print(f"Error: {e}")
 
 # Layer initialisation
 # PPO uses orthogonal initialisation on layers weight and constant initialisation on bias

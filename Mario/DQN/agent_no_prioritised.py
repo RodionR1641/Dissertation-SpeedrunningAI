@@ -16,7 +16,7 @@ import wandb
 
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-log_file = f"dqn_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_rank{rank}.log"
+log_file = f"logs/dqn_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_rank{rank}.log"
 video_folder = "" #TODO: make a folder here
 
 # Configure logging
@@ -290,7 +290,7 @@ class Agent:
                     logging.info(f"Epoch: {epoch} - Episode loss: {np.mean(stats['Loss'][-1:])}  - Epsilon: {self.epsilon} ")
             
             if epoch % 1000 == 0:
-                self.model.save_model(f"models/model_iter_{epoch}.pt") #saving the models, may see where the good performance was and then it might tank -> can copy
+                self.model.save_model(f"models/dqn_iter_{epoch}.pt") #saving the models, may see where the good performance was and then it might tank -> can copy
                 #this in as the main model. Then can start retraining from this point if needed
 
             self.writer.add_scalar("Charts/epochs",epoch,self.game_steps)

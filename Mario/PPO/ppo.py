@@ -415,6 +415,15 @@ if __name__ == "__main__":
             if args.target_kl is not None:
                 if approx_kl > args.target_kl:
                     break
+        
+
+        if update % 100 == 0:
+            print("Loss = " + str(loss.item()))
+            print("Time Step = " + str(global_step))
+            print("Reward = " + str(reward)) 
+            ac_model.save_model()  
+        if update % 1000 == 0:
+            ac_model.save_model()
 
         #debug variable:explained variance - indicate if the value function is a good indicator of the returns ///
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
@@ -423,6 +432,7 @@ if __name__ == "__main__":
 
         #measure stats
         writer.add_scalar("Charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
+        writer.add_scalar("Charts/epochs", update,global_step)
         
         #add average loss, more representitive
         writer.add_scalar("losses/loss_episodic", loss_total/loss_count, global_step)

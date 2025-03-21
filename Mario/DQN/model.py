@@ -101,7 +101,6 @@ class MarioNet(nn.Module):
             return self.flatten(x).shape[1] #get number of features after flattening
 
     #these models take a while to train, want to save it and reload on start
-    #use pt format
     def save_model(self, weights_filename="models/latest.pt"):
         #state_dict() -> dictionary of the states/weights in a given model
         # we override nn.Module, so this can be done

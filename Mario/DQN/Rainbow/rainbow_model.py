@@ -103,7 +103,7 @@ class MarioNet(nn.Module):
 
     #these models take a while to train, want to save it and reload on start
     #use pt format
-    def save_model(self, weights_filename="models/latest.pt"):
+    def save_model(self, weights_filename="models_rainbow/latest.pt"):
         #state_dict() -> dictionary of the states/weights in a given model
         # we override nn.Module, so this can be done
         print("...saving checkpoint...")
@@ -111,7 +111,7 @@ class MarioNet(nn.Module):
             os.mkdir("models")
         torch.save(self.state_dict(),weights_filename)
     
-    def load_model(self, weights_filename="models/latest.pt",device="cpu"):
+    def load_model(self, weights_filename="models_rainbow/latest.pt",device="cpu"):
         try:
             self.load_state_dict(torch.load(weights_filename,map_location=device,weights_only=True))
             print(f"Loaded weights filename: {weights_filename}")            

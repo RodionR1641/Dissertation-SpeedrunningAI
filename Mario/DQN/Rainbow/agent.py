@@ -2,11 +2,8 @@ import random
 import torch
 import gym
 import torch.optim as optim
-import torch.nn.functional as F
-from plot import LivePlot
 import numpy as np
 import time
-import os
 import logging
 import datetime
 from Rainbow.rainbow_model import MarioNet
@@ -15,12 +12,9 @@ from collections import deque
 from segment_tree import MinSegmentTree, SumSegmentTree
 from torch.nn.utils import clip_grad_norm_
 
-log_dir = "/cs/home/psyrr4/Code/Code/Mario/logs"
-os.makedirs(log_dir, exist_ok=True)
-
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-log_file = f"rainbow_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_rank{rank}.log"
+log_file = f"logs/rainbow_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_rank{rank}.log"
 video_folder = "" #TODO: make a folder here
 
 # Configure logging

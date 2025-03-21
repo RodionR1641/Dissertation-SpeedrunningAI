@@ -213,7 +213,7 @@ if __name__ == "__main__":
         print("error - invalid agent_type")
         exit()
     
-    run_name = f"{args.gym_id}__{exp_name}__{args.seed}__{int(time.time())}"
+    run_name = f"{args.gym_id}__{exp_name}__{args.seed}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
     if args.track:
         #wanbd allows to track info related to our experiment on the cloud

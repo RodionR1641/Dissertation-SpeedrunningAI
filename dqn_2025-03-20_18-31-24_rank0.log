@@ -1,5 +1,0 @@
-2025-03-20 18:31:24,853 - INFO - Process 0 started training on GPUs
-2025-03-20 18:31:24,853 - INFO - cuda not available
-2025-03-20 18:31:25,517 - INFO - starting, device=cpu
-2025-03-20 18:31:25,517 - INFO - Process 0 started training on GPUs
-2025-03-20 18:31:25,519 - INFO - cuda not available
