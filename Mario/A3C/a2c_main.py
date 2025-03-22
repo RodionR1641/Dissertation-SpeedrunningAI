@@ -11,7 +11,7 @@ import random
 import torch
 from gym.vector import SyncVectorEnv
 from mario import Mario
-from plot import LivePlot
+import time
 import wandb
 from wandb.integration.tensorboard import patch
 
@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, cuda will be enabled by default")
     
-    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
     parser.add_argument("--wandb-project-name", type=str, default="a2c-experiment",
         help="the wandb's project name")
@@ -181,6 +181,39 @@ def train(env,device,args):
     env.close()
     writer.close()
 
+
+def test(env,device,args):
+    alpha = args.learning_rate
+    gamma = args.gamma
+    n_actions = env.action_num
+
+    agent = Agent(input_shape=env.observation_space.shape,lr_rate=alpha,
+                  n_actions=n_actions,gamma=gamma,num_envs=num_envs)
+    
+    agent.load_models() #make sure the latest model is loaded
+    done = False
+    state = env.reset()
+
+    while not done:
+        state = torch.as_tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+
+        # Get action from the agent
+        with torch.no_grad():  # No need to compute gradients during testing
+            action, _, _, _ = agent.choose_action_entropy(state)
+
+            next_state, reward, done, info = env.step(action)
+
+            state = next_state
+
+            env.render()
+            time.sleep(0.01)
+            if "episode" in info:
+                    episodic_return = info["episode"]["r"]
+                    episodic_len = info["episode"]["l"]
+                    print(f"episodic return = {episodic_return}, episodic len = {episodic_len}")
+    
+    env.close()
+
 if __name__ == "__main__":
     args = parse_args()
     print(os.getcwd())
@@ -224,6 +257,8 @@ if __name__ == "__main__":
     )#vectorised environment
 
     if(testing):
-        pass
+        env = Mario(args.gym_id,args.seed)
+
+        test(env=env,device=device,args=args)
     else:
         train(env=env,device=device,args=args)

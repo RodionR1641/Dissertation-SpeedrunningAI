@@ -517,11 +517,12 @@ class Agent_Rainbow_RND:
     def train(self, epochs):
 
         self.is_test = False
-
+        #kept outside outer loop to not lose the data
+        episodic_return = 0 #note, this is only the extrinsic reward of the environment
+        episodic_len = 0
         for epoch in range(1,epochs+1):
             state = self.env.reset() #reset the environment for each iteration
             done = False
-            ep_return = 0
             ep_reward_intrinsic = 0
             ep_reward_extrinsic = 0
             ep_loss = 0
@@ -547,7 +548,6 @@ class Agent_Rainbow_RND:
                 intrinsic_reward = intrinsic_reward.clamp(-1.0,1.0).item() #keep the rewards clamped to not have too much effect
 
                 next_state,reward,extrinsic_reward,done, info = self.step_env(action,intrinsic_reward=intrinsic_reward)
-                ep_return += reward#combined extrinsic and intrinsic
                 ep_reward_extrinsic += extrinsic_reward
                 ep_reward_intrinsic += intrinsic_reward
 
@@ -565,16 +565,15 @@ class Agent_Rainbow_RND:
                 state = next_state #did the training, now move on with next state
 
                 if "episode" in info:
-                    self.writer.add_scalar("Charts/episodic_return", info["episode"]["r"], self.game_steps) 
-                    self.writer.add_scalar("Charts/episodic_length", info["episode"]["l"], self.game_steps)
+                    episodic_return = info["episode"]["r"]
+                    episodic_len = info["episode"]["l"]
+                    self.writer.add_scalar("Charts/episodic_return", episodic_return, self.game_steps) 
+                    self.writer.add_scalar("Charts/episodic_length", episodic_len, self.game_steps)
 
             self.writer.add_scalar("Charts/intrinsic_reward",intrinsic_reward,self.game_steps)
             self.writer.add_scalar("Charts/extrinsic_reward",extrinsic_reward,self.game_steps)
             self.writer.add_scalar("Charts/beta",self.beta,self.game_steps)
             self.writer.add_scalar("Charts/epochs",epoch,self.game_steps)
-            print("Total loss = "+str(ep_loss))
-            print("intrinsic reward ="+str(ep_reward_intrinsic))
-            print("Time Steps = "+str(self.game_steps))
 
             if loss > 0 or loss_count > 0:
                 #average loss - more representitive
@@ -586,7 +585,8 @@ class Agent_Rainbow_RND:
             if epoch % 10 == 0:
                 print("")
                 if loss_count > 0:
-                    print(f"Episode loss = {ep_loss}, Average loss = {ep_loss/loss_count}, Epoch = {epoch}, \
+                    print(f"Episode return = {episodic_return}, Episode len = {episodic_len},  \
+                        Episode loss = {ep_loss}, Average loss = {ep_loss/loss_count}, Epoch = {epoch}, \
                         Time Steps = {self.game_steps}, Extrinsic Reward = {ep_reward_extrinsic}, \
                         Intrinsic Reward = {ep_reward_intrinsic}, Beta = {self.beta}")
                 print("")

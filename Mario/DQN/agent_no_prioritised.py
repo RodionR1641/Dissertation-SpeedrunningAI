@@ -181,11 +181,12 @@ class Agent:
     
     #epochs = how many iterations to train for
     def train(self, epochs):
-
+        
+        episodic_return = 0
+        episodic_len = 0
         for epoch in range(1,epochs+1):
             state = self.env.reset() #reset the environment for each iteration
             done = False
-            ep_return = 0
             ep_loss = 0
             loss = 0
             loss_count = 0
@@ -229,7 +230,6 @@ class Agent:
                     #detach -> important as we dont want to back propagate on target network
                     target_b = (rewards + self.gamma * next_qsa_b * (1 - dones.float()) ) #1-dones.float() -> stop propagating when finished episode
                     
-                    #indices = samples["index"]
 
                     loss = self.loss(qsa_b,target_b)
                     loss.backward()
@@ -239,19 +239,21 @@ class Agent:
                     self.decay_epsilon() #decay epsilon at each step in environment
 
                 if "episode" in info:
-                    self.writer.add_scalar("Charts/episodic_return", info["episode"]["r"], self.game_steps) 
-                    self.writer.add_scalar("Charts/episodic_length", info["episode"]["l"], self.game_steps)
+                    episodic_return = info["episode"]["r"]
+                    episodic_len = info["episode"]["l"]
+                    self.writer.add_scalar("Charts/episodic_return", episodic_return, self.game_steps) 
+                    self.writer.add_scalar("Charts/episodic_length", episodic_len, self.game_steps)
                     # episodic length(number of steps)
                         
                 state = next_state #did the training, now move on with next state
-                ep_return += reward
                 #print(f"Got here now, episode return={ep_return}, time step = {self.game_steps}")
 
             #gatherin stats
             if epoch % 10 == 0:
                 print("")
                 if loss_count > 0:
-                    print(f"Episode loss = {ep_loss}, Average loss = {ep_loss/loss_count}, Epoch = {epoch}, \
+                    print(f"Episode return = {episodic_return}, Episode len = {episodic_len},  \
+                        Episode loss = {ep_loss}, Average loss = {ep_loss/loss_count}, Epoch = {epoch}, \
                         Time Steps = {self.game_steps}, epsilon = {self.epsilon}")
                 print("")
             if epoch % 100 == 0:

@@ -506,10 +506,11 @@ class Agent_Rainbow:
     def train(self, epochs):
         self.is_test = False
 
+        episodic_return = 0
+        episodic_len = 0
         for epoch in range(1,epochs+1):
             state = self.env.reset() #reset the environment for each iteration
             done = False
-            ep_return = 0
             ep_loss = 0
             loss_count = 0
             loss = 0
@@ -520,7 +521,6 @@ class Agent_Rainbow:
                 self.game_steps += 1
 
                 next_state,reward,done, info = self.step_env(action)
-                ep_return += reward#just the extrinsic and not intrinsic
 
                 #PER: update beta, make it go closer to 1 as towards the end of training as we want 
                 # more unbiased updates to prevent overfitting
@@ -536,8 +536,10 @@ class Agent_Rainbow:
                 state = next_state #did the training, now move on with next state
 
                 if "episode" in info:
-                    self.writer.add_scalar("Charts/episodic_return", info["episode"]["r"], self.game_steps) 
-                    self.writer.add_scalar("Charts/episodic_length", info["episode"]["l"], self.game_steps)
+                    episodic_return = info["episode"]["r"]
+                    episodic_len = info["episode"]["l"]
+                    self.writer.add_scalar("Charts/episodic_return", episodic_return, self.game_steps) 
+                    self.writer.add_scalar("Charts/episodic_length", episodic_len, self.game_steps)
 
             self.writer.add_scalar("Charts/beta",self.beta,self.game_steps)
             self.writer.add_scalar("Charts/epochs",epoch,self.game_steps)
@@ -552,7 +554,8 @@ class Agent_Rainbow:
             if epoch % 10 == 0:
                 print("")
                 if loss_count > 0:
-                    print(f"Episode loss = {ep_loss}, Average loss = {ep_loss/loss_count}, Epoch = {epoch}, \
+                    print(f"Episode return = {episodic_return}, Episode len = {episodic_len},  \
+                        Episode loss = {ep_loss}, Average loss = {ep_loss/loss_count}, Epoch = {epoch}, \
                         Time Steps = {self.game_steps}, Beta = {self.beta}")
                 print("")
 
