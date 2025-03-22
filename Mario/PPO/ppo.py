@@ -16,6 +16,75 @@ import wandb
 from wandb.integration.tensorboard import patch
 import datetime
 
+def test(env, device):
+    
+    # Reset the environment
+    state = env.reset()
+    done = False
+    
+    while not done:
+        time.sleep(0.01)
+        # Convert state to tensor, add batch dimension
+        state = torch.as_tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+        
+        # Get action from the model
+        with torch.no_grad():  # No need to compute gradients during testing
+            action, _, _, _ = ac_model.get_action_plus_value(state)
+        
+        # Take action in the environment
+        next_state, reward, done, info = env.step(action.cpu().numpy())
+        
+        # Update state
+        state = next_state
+        
+        # Render the environment (optional)
+        env.render()
+        if "episode" in info:
+            episodic_return = info["episode"]["r"]
+            episodic_len = info["episode"]["l"]
+            print(f"episodic return = {episodic_return}, episodic len = {episodic_len}")
+    
+    env.close()
+
+#these models take a while to train, want to save it and reload on start. Save both target and online for exact reproducibility
+def save_models(num_updates,global_step, weights_filename="models/ppo/ppo_latest.pth"):
+    #state_dict() -> dictionary of the states/weights in a given model
+    # we override nn.Module, so this can be done
+
+    checkpoint = {
+        'ac_model_state_dict': ac_model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'learning_rate': optimizer.param_groups[0]["lr"],  # Save the learning rate for the first group
+        'num_updates': num_updates,      # Save the current epoch
+        'global_step': global_step,  # Save the global step
+    }
+
+    print("...saving checkpoint...")
+    if not os.path.exists("models/ppo"):
+        os.mkdir("models/ppo")
+    torch.save(checkpoint,weights_filename)
+
+#if model doesnt exist, we just have a random model
+def load_models(weights_filename="models/ppo/ppo_latest.pth"):
+    try:
+
+        checkpoint = torch.load(weights_filename)
+        ac_model.load_state_dict(checkpoint["ac_model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        optimizer.param_groups[0]["lr"] = checkpoint['learning_rate']
+        num_updates = checkpoint["num_updates"]
+        global_step = checkpoint["global_step"]
+
+        ac_model.to(device)
+
+        print(f"Loaded weights filename: {weights_filename}")
+
+        return num_updates, global_step            
+    except Exception as e:
+        print(f"No weights filename: {weights_filename}, using a random initialised model")
+        print(f"Error: {e}")
+
+
 def parse_args():
     # fmt: off
     parser = argparse.ArgumentParser()
@@ -107,6 +176,8 @@ def seed_run():
     random.seed(args.seed)
 
 if __name__ == "__main__":
+
+    load_models_flag = True #decide if to load models or not
     args = parse_args()
     run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
     testing = False
@@ -114,9 +185,40 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
     print("device PPO: ",device)
 
+    #seeding
+    seed_run()
+
+    #Vectorised environment - run N environments. Envs is a synchronous interface that outputs a batch of N observations from
+    #N environments. The done flags then become a list for each env being done or not. Then have rollout and learn phase
+    #rollout - sample actions from N environments and step for M steps. if env done, just set the done flag but can restart and continue going collecitng data
+    #learning - learn from data in rollout phase, calculate advantages and returns. Learn from [data,advantages,returns] which
+    # are the fixed length trajectory segments
+    # next_done tells if next_obs is actually the first observation of a new episode. PPO can still learn even if sub env never
+    # terminate or truncate
+    # so at end of j-th rollout phase, next_obs can be used to estimate the value of the final state during learning phase and
+    # the beginning of the j+1th rollout phase, next_obs becomes the initial observation in data
+    envs = gym.vector.SyncVectorEnv(
+        [make_env(args.gym_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
+    )#vectorised environment
+    assert isinstance(envs.single_action_space, gym.spaces.Discrete) #only for discrete actions here
+
+    ac_model = MarioNet(envs,input_shape=envs.envs[0].observation_space.shape,device=device) #actor critic model.
+    ac_model.to(device)
+
+    optimizer = optim.Adam(ac_model.parameters(), lr=args.learning_rate, eps=1e-5) #epsilon decay of 1e-5 for PPO
+
+    #track number of environment steps
+    global_step = 0
+    curr_num_updates = 0
+
+    #load the model to continue training
+    if load_models_flag == True:
+        curr_num_updates, global_step = load_models()
+
     if testing:
         env = Mario(device=device,env_id=args.gym_id,seed=args.seed)
         env = RecordVideo(env,f"videos/{run_name}")
+        test(env,device)
         exit() #dont need the rest of code just for a test run
     
     if args.track:
@@ -130,34 +232,13 @@ if __name__ == "__main__":
             save_code=True
         )
 
-    patch() #make sure tensorboard graphs are saved to wandb
+        patch() #make sure tensorboard graphs are saved to wandb
     #visualisation toolkit to visualise training - Tensorboard, allows to see the metrics like loss and see hyperparameters
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
-    
-    #seeding
-    seed_run()
-    #Vectorised environment - run N environments. Envs is a synchronous interface that outputs a batch of N observations from
-    #N environments. The done flags then become a list for each env being done or not. Then have rollout and learn phase
-    #rollout - sample actions from N environments and step for M steps. if env done, just set the done flag but can restart and continue going collecitng data
-    #learning - learn from data in rollout phase, calculate advantages and returns. Learn from [data,advantages,returns] which
-    # are the fixed length trajectory segments
-    # next_done tells if next_obs is actually the first observation of a new episode. PPO can still learn even if sub env never
-    # terminate or truncate
-    # so at end of j-th rollout phase, next_obs can be used to estimate the value of the final state during learning phase and
-    # the beginning of the j+1th rollout phase, next_obs becomes the initial observation in data
-    envs = gym.vector.SyncVectorEnv(
-        [make_env(args.gym_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
-    )#vectorised environment
-
-    assert isinstance(envs.single_action_space, gym.spaces.Discrete) #only for discrete actions here
-
-    ac_model = MarioNet(envs,input_shape=envs.envs[0].observation_space.shape,device=device) #actor critic model.
-
-    optimizer = optim.Adam(ac_model.parameters(), lr=args.learning_rate, eps=1e-5) #epsilon decay of 1e-5 for PPO
                 
     # Storage setup - shape is to match num_steps * num_envs size
     obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape).to(device)
@@ -167,8 +248,6 @@ if __name__ == "__main__":
     dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
     values = torch.zeros((args.num_steps, args.num_envs)).to(device)
 
-    #track number of environment steps
-    global_step = 0
     start_time = time.time() #helps to calculate fps later
     next_obs = torch.Tensor(envs.reset()).to(device) #store initial and subsequent observations
     next_done = torch.zeros(args.num_envs).to(device)
@@ -188,7 +267,7 @@ if __name__ == "__main__":
     #each update is one iteration of the training loop
     episodic_reward = 0
     episodic_len = 0
-    for update in range(1,num_updates+1):
+    for update in range(curr_num_updates,num_updates+1):
         loss_total = 0
         v_loss_total = 0
         pg_loss_total = 0
@@ -420,10 +499,11 @@ if __name__ == "__main__":
                             ,Epoch = {epoch},Time Steps = {global_step}, Learning Rate ={optimizer.param_groups[0]["lr"]} \
                             ,Last Rewards = {', '.join(map(str, rewards.flatten()))}")
             print("")
-            ac_model.save_model() 
+        if update % 100 == 0:
+            save_models(num_updates=update,global_step=global_step) 
         
         if update % 1000 == 0:
-            ac_model.save_model(f"models/ppo_iter_{update}.pt")
+            save_models(num_updates=update,global_step=global_step,weights_filename=f"models/ppo/ppo_iter_{update}.pt")
 
         #debug variable:explained variance - indicate if the value function is a good indicator of the returns
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
@@ -452,43 +532,6 @@ if __name__ == "__main__":
         
         writer.add_scalar("Charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
-    ac_model.save_model()
+    save_models()
     envs.close()
     writer.close()
-
-
-
-def test(env, device, model_path=None):
-    # Initialize the model
-    ac_model = MarioNet(env, input_shape=env.observation_space.shape, device=device)
-    
-    # Load the trained model weights
-    ac_model.load_model(model_path)
-    
-    # Reset the environment
-    state = env.reset()
-    done = False
-    
-    while not done:
-        time.sleep(0.01)
-        # Convert state to tensor, add batch dimension
-        state = torch.as_tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
-        
-        # Get action from the model
-        with torch.no_grad():  # No need to compute gradients during testing
-            action, _, _, _ = ac_model.get_action_plus_value(state)
-        
-        # Take action in the environment
-        next_state, reward, done, info = env.step(action.cpu().numpy())
-        
-        # Update state
-        state = next_state
-        
-        # Render the environment (optional)
-        env.render()
-        if "episode" in info:
-                    episodic_return = info["episode"]["r"]
-                    episodic_len = info["episode"]["l"]
-                    print(f"episodic return = {episodic_return}, episodic len = {episodic_len}")
-    
-    env.close()

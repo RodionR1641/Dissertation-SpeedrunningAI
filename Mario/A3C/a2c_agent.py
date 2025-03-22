@@ -2,7 +2,7 @@ import torch
 from a2c_model import ActorCritic
 from torch.distributions import Categorical # taking probability from network and map it to distribution for us
 import torch.optim as optim
-import torch.nn.functional as F
+import os
 
 class Agent:
     def __init__(self,input_shape,lr_rate=1e-5,device="cpu", gamma=0.99, n_actions=5,num_envs=8):
@@ -13,10 +13,12 @@ class Agent:
         self.lr_rate = lr_rate
 
         self.actor_critic = ActorCritic(input_shape=input_shape,n_actions=n_actions,device=device)
-        self.optimiser = optim.Adam(self.actor_critic.parameters(), lr=self.lr_rate)
+        self.optimizer = optim.Adam(self.actor_critic.parameters(), lr=self.lr_rate)
         self.num_envs = num_envs
 
         self.log_probs = None
+        self.game_steps = 0
+        self.curr_epoch = 1
         self.device = device
 
 
@@ -34,14 +36,6 @@ class Agent:
 
         return (action.numpy(), log_probs, state_values, entropy)
         #return a numpy version of the action as action is a tensor, but openai gym needs numpy arrays.
-
-    def save_models(self,weights_filename="models/a2c_latest.pt"):
-        print("... saving models ...")
-        self.actor_critic.save_model(weights_filename=weights_filename)
-
-    def load_models(self,weigts_filename="models/a2c_latest.pt",device="cpu"):
-        print("... loading models ...")
-        self.actor_critic.load_model(weights_filename=weigts_filename,device=device)
 
     """
         Computes the loss of a minibatch (transitions collected in one sampling phase) for actor and critic
@@ -82,8 +76,43 @@ class Agent:
     def update_params(self,actor_loss,critic_loss):
         loss = critic_loss + actor_loss #combine the loss
 
-        self.optimiser.zero_grad()
+        self.optimizer.zero_grad()
         loss.backward()
-        self.optimiser.step()
+        self.optimizer.step()
 
         return loss.item()
+    
+
+    #these models take a while to train, want to save it and reload on start. Save both target and online for exact reproducibility
+    def save_models(self,epoch, weights_filename="models/a2c/a2c_latest.pth"):
+        #state_dict() -> dictionary of the states/weights in a given model
+        # we override nn.Module, so this can be done
+
+        checkpoint = {
+            'model_state_dict': self.actor_critic.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'epoch': epoch,      # Save the current epoch
+            'game_steps': self.game_steps,  # Save the global step
+        }
+
+        print("...saving checkpoint...")
+        if not os.path.exists("models/a2c"):
+            os.mkdir("models/a2c")
+        torch.save(checkpoint,weights_filename)
+
+    #if model doesnt exist, we just have a random model
+    def load_models(self, weights_filename="models/a2c/a2c_latest.pth"):
+        try:
+
+            checkpoint = torch.load(weights_filename)
+            self.actor_critic.load_state_dict(checkpoint["model_state_dict"])
+            self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            self.curr_epoch = checkpoint["epoch"]
+            self.game_steps = checkpoint["game_steps"]
+
+            self.actor_critic.to(self.device)
+
+            print(f"Loaded weights filename: {weights_filename}")            
+        except Exception as e:
+            print(f"No weights filename: {weights_filename}, using a random initialised model")
+            print(f"Error: {e}")

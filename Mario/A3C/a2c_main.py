@@ -15,6 +15,7 @@ import time
 import wandb
 from wandb.integration.tensorboard import patch
 
+load_models_flag = True 
 
 def print_info():
     print(f"Process {rank} started training on GPUs")
@@ -110,12 +111,15 @@ def train(env,device,args):
 
     agent = Agent(input_shape=env.envs[0].observation_space.shape,lr_rate=alpha,
                   n_actions=n_actions,gamma=gamma,num_envs=num_envs)
+    
+    if load_models_flag == True:
+        agent.load_models()
 
     n_epochs = args.n_epochs
 
-    game_steps =0
+    game_steps = agent.game_steps
     
-    for epoch in range(1,n_epochs+1):
+    for epoch in range(agent.curr_epoch,n_epochs+1):
 
         # Reset lists to collect experiences
         ep_value_preds = torch.zeros(n_steps_per_update, num_envs, device=device)
@@ -172,12 +176,12 @@ def train(env,device,args):
             print("")
 
         if epoch % 100 == 0:
-            agent.save_models() #save model every 10th epoch
+            agent.save_models(epoch=epoch) #save model every 100th epoch
 
         if epoch % 100 == 0:
-            agent.save_models(f"models/a2c_epoch{epoch}_{game_steps}.pt")
+            agent.save_models(epoch=epoch,weights_filename=f"models/a2c/a2c_{epoch}_{game_steps}.pt")
     
-    agent.save_models()
+    agent.save_models(epoch)
     env.close()
     writer.close()
 
@@ -190,7 +194,8 @@ def test(env,device,args):
     agent = Agent(input_shape=env.observation_space.shape,lr_rate=alpha,
                   n_actions=n_actions,gamma=gamma,num_envs=num_envs)
     
-    agent.load_models() #make sure the latest model is loaded
+    if load_models_flag == True:
+        agent.load_models() #make sure the latest model is loaded
     done = False
     state = env.reset()
 
@@ -217,6 +222,7 @@ def test(env,device,args):
 if __name__ == "__main__":
     args = parse_args()
     print(os.getcwd())
+    testing = False
 
     # Define log file name (per process)
     rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
@@ -225,7 +231,14 @@ if __name__ == "__main__":
     print_info()
     testing = args.testing
     run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+    if(testing):
+        env = Mario(args.gym_id,args.seed)
+        env = RecordVideo(env,f"videos/{run_name}")
+
+        test(env=env,device=device,args=args)
+        exit()#only test 
 
     if args.track:
         #wanbd allows to track info related to our experiment on the cloud
@@ -237,17 +250,13 @@ if __name__ == "__main__":
             monitor_gym=False, #monitors videos, but for old gym. Doesnt work now
             save_code=True
         )
-
-    patch() #make sure tensorboard graphs are saved to wandb
+        patch() #make sure tensorboard graphs are saved to wandb
     #visualisation toolkit to visualise training - Tensorboard, allows to see the metrics like loss and see hyperparameters
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
-
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    testing = False
 
     seed_run()
     num_envs = args.num_envs
@@ -256,10 +265,4 @@ if __name__ == "__main__":
         [make_env(args.gym_id, args.seed + i, i, args.capture_video, run_name) for i in range(num_envs)]
     )#vectorised environment
 
-    if(testing):
-        env = Mario(args.gym_id,args.seed)
-        env = RecordVideo(env,f"videos/{run_name}")
-
-        test(env=env,device=device,args=args)
-    else:
-        train(env=env,device=device,args=args)
+    train(env=env,device=device,args=args)
