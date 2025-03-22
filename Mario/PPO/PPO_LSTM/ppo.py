@@ -3,7 +3,7 @@ import os
 import random
 import time
 from distutils.util import strtobool
-
+import wandb
 import gym
 import numpy as np
 import torch
@@ -91,13 +91,13 @@ def load_models(weights_filename="models/ppo_lstm/ppo_lstm_latest.pth"):
 def parse_args():
     # fmt: off
     parser = argparse.ArgumentParser()
-    parser.add_argument("--exp-name", type=str, default=os.path.basename(__file__).rstrip(".py"),
+    parser.add_argument("--exp-name", type=str, default="PPO_LSTM_experiment",
         help="the name of this experiment")
     parser.add_argument("--gym-id", type=str, default="SuperMarioBros-1-1-v0",
         help="the id of the gym environment")
     parser.add_argument("--learning-rate", type=float, default=2.5e-4,
         help="the learning rate of the optimizer")
-    parser.add_argument("--seed", type=int, default=1,
+    parser.add_argument("--seed", type=int, default=777,
         help="seed of the experiment")
     parser.add_argument("--total-timesteps", type=int, default=10_000_000, # 10 million timesteps
         help="total timesteps of the experiments")
@@ -107,9 +107,9 @@ def parse_args():
         help="if toggled, cuda will be enabled by default")
     
     #
-    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
-    parser.add_argument("--wandb-project-name", type=str, default="ppo-implementation-details",
+    parser.add_argument("--wandb-project-name", type=str, default="RL_Mario",
         help="the wandb's project name")
     parser.add_argument("--wandb-entity", type=str, default=None,
         help="the entity (team) of wandb's project")
@@ -150,7 +150,7 @@ def parse_args():
         help="the maximum norm for the gradient clipping")
     parser.add_argument("--target-kl", type=float, default=0.05, #0.05 is quite lenient 
         help="the target KL divergence threshold")
-    
+
     args = parser.parse_args()
     args.batch_size = int(args.num_envs * args.num_steps) # the total batch size for learning, split into minibatches
     args.minibatch_size = int(args.batch_size // args.num_minibatches) # minibatches used for training
@@ -226,18 +226,59 @@ if __name__ == "__main__":
         exit() #dont need the rest of code just for a test run
 
     if args.track:
-        import wandb
+        run_id = None
+        run_id_file = f"wandb_ids/run_id_{args.exp_name}.txt"
+        #if we ended a run, we can resume it in wandb just by getting the same run_id of that experiment as before. 
+        #the models etc will also be loaded so as to resume the run
+        if os.path.exists(run_id_file):
+            with open(run_id_file,"r") as f:
+                lines = f.readlines()
+                if lines:
+                    last_line = lines[-1].strip() #get the last run id for this experiment
+                    run_id = last_line
+        # Initialize or resume the W&B run
+        try:
+            if run_id:
+                # Resume the existing run
+                run = wandb.init(
+                    id=run_id,
+                    resume="must",  # Only resume if the run_id exists
+                    project=args.wandb_project_name,
+                    entity=args.wandb_entity,
+                    config=vars(args),
+                    name=run_name,
+                    monitor_gym=False, # Monitors videos, but for old gym. Doesn't work now
+                    save_code=True
+                )
+                print(f"Resumed existing run with ID: {run_id}")
+            else:
+                # Start a new run
+                run = wandb.init(
+                    project=args.wandb_project_name,
+                    entity=args.wandb_entity,
+                    config=vars(args),
+                    name=run_name,
+                    monitor_gym=False, # Monitors videos, but for old gym. Doesn't work now
+                    save_code=True
+                )
+                print(f"Started new run with ID: {run.id}")
 
-        wandb.init(
-            project=args.wandb_project_name,
-            entity=args.wandb_entity,
-            sync_tensorboard=True,
-            config=vars(args),
-            name=run_name,
-            monitor_gym=True,
-            save_code=True,
-        )
-        patch()
+            # Save the current run_id to the file
+            if not os.path.exists("wandb_ids"):
+                os.makedirs("wandb_ids")
+
+            # append the run_id to the file if it's not already there
+            # if run_id is None -> there wasnt a previous one in this file, so need to append the current one to become first
+            if run_id is None or str(run.id) not in lines:
+                with open(run_id_file, "a") as f:
+                    f.write(f"{run.id}\n")  # Append the run_id as a new line
+
+            patch()  # Make sure TensorBoard graphs are saved to wandb
+            run_id = run.id
+
+        except wandb.Error as e:
+            print(f"Failed to initialize/resume W&B run: {e}")
+            exit()
 
     #visualisation toolkit to visualise training
     writer = SummaryWriter(f"runs/{run_name}")

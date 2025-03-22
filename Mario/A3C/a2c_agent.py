@@ -108,7 +108,7 @@ class Agent:
             self.actor_critic.load_state_dict(checkpoint["model_state_dict"])
             self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
             self.curr_epoch = checkpoint["epoch"]
-            self.game_steps = checkpoint["game_steps"]
+            self.game_steps = checkpoint["game_steps"]  
 
             self.actor_critic.to(self.device)
 

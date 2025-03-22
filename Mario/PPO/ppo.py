@@ -106,7 +106,7 @@ def parse_args():
     #
     parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
-    parser.add_argument("--wandb-project-name", type=str, default="RL Mario",
+    parser.add_argument("--wandb-project-name", type=str, default="RL_Mario",
         help="the wandb's project name")
     parser.add_argument("--wandb-entity", type=str, default=None,
         help="the entity (team) of wandb's project")
@@ -222,17 +222,60 @@ if __name__ == "__main__":
         exit() #dont need the rest of code just for a test run
     
     if args.track:
-        #wanbd allows to track info related to our experiment on the cloud
-        wandb.init(
-            project=args.wandb_project_name,
-            entity=args.wandb_entity,
-            config=vars(args),
-            name=run_name,
-            monitor_gym=False, #monitors videos, but for old gym. Doesnt work now
-            save_code=True
-        )
+        run_id = None
+        run_id_file = f"wandb_ids/run_id_{args.exp_name}.txt"
+        #if we ended a run, we can resume it in wandb just by getting the same run_id of that experiment as before. 
+        #the models etc will also be loaded so as to resume the run
+        if os.path.exists(run_id_file):
+            with open(run_id_file,"r") as f:
+                lines = f.readlines()
+                if lines:
+                    last_line = lines[-1].strip() #get the last run id for this experiment
+                    run_id = last_line
+        # Initialize or resume the W&B run
+        try:
+            if run_id:
+                # Resume the existing run
+                run = wandb.init(
+                    id=run_id,
+                    resume="must",  # Only resume if the run_id exists
+                    project=args.wandb_project_name,
+                    entity=args.wandb_entity,
+                    config=vars(args),
+                    name=run_name,
+                    monitor_gym=False, # Monitors videos, but for old gym. Doesn't work now
+                    save_code=True
+                )
+                print(f"Resumed existing run with ID: {run_id}")
+            else:
+                # Start a new run
+                run = wandb.init(
+                    project=args.wandb_project_name,
+                    entity=args.wandb_entity,
+                    config=vars(args),
+                    name=run_name,
+                    monitor_gym=False, # Monitors videos, but for old gym. Doesn't work now
+                    save_code=True
+                )
+                print(f"Started new run with ID: {run.id}")
 
-        patch() #make sure tensorboard graphs are saved to wandb
+            # Save the current run_id to the file
+            if not os.path.exists("wandb_ids"):
+                os.makedirs("wandb_ids")
+
+            # append the run_id to the file if it's not already there
+            # if run_id is None -> there wasnt a previous one in this file, so need to append the current one to become first
+            if run_id is None or str(run.id) not in lines:
+                with open(run_id_file, "a") as f:
+                    f.write(f"{run.id}\n")  # Append the run_id as a new line
+
+            patch()  # Make sure TensorBoard graphs are saved to wandb
+            run_id = run.id
+
+        except wandb.Error as e:
+            print(f"Failed to initialize/resume W&B run: {e}")
+            exit()
+    
     #visualisation toolkit to visualise training - Tensorboard, allows to see the metrics like loss and see hyperparameters
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(
