@@ -5,11 +5,11 @@ import numpy as np
 import time
 from model import MarioNet
 from model_mobile_vit import MarioNet_ViT
-import gym
+import os
 
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-video_folder = "" #TODO: make a folder here
+load_models = True # flag to see if we want to load an existing model and continue training, or train a new one
 
 def print_info():
     print(f"Process {rank} started training on GPUs")
@@ -106,6 +106,7 @@ class Agent:
                  ):
 
         self.env = env
+        self.device = device
 
         #initialise the models
         if(use_vit):
@@ -113,16 +114,19 @@ class Agent:
         else:
             self.model = MarioNet(input_dims,nb_actions=nb_actions,device=device)
         self.target_model = copy.deepcopy(self.model).eval() #when we work with q learning, want a model and another model we can evaluate of off. Part of Dueling deep Q
-        
-        """
-        if os.path.exists("models"):
-            self.model.load_model(device=device)
-            self.target_model.load_model(device=device)"
-        """
-        
-        self.device = device
+
+        #model default value - if we already had a model, then use the epochs we left off  
+        self.curr_epoch = 1
+
+        #Combines adaptive learning rates with weight decay regularisation for better generalisation
+        self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
+
         self.model.to(self.device)
         self.target_model.to(self.device)
+        
+        #load models
+        if os.path.exists("models/dqn") and load_models==True:
+            self.load_models()
 
         self.nb_actions = nb_actions
 
@@ -140,9 +144,6 @@ class Agent:
         self.epsilon_decay = 0.99999975#1- (((epsilon - min_epsilon) / nb_warmup) *2) # linear decay rate, close to the nb_warmup steps count
 
         self.game_steps = 0 #track how many steps taken over entire training
-        
-        #Combines adaptive learning rates with weight decay regularisation for better generalisation
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
 
         self.loss = torch.nn.MSELoss()
 
@@ -184,7 +185,7 @@ class Agent:
         
         episodic_return = 0
         episodic_len = 0
-        for epoch in range(1,epochs+1):
+        for epoch in range(self.curr_epoch,epochs+1):
             state = self.env.reset() #reset the environment for each iteration
             done = False
             ep_loss = 0
@@ -257,10 +258,10 @@ class Agent:
                         Time Steps = {self.game_steps}, epsilon = {self.epsilon}")
                 print("")
             if epoch % 100 == 0:
-                self.model.save_model() #save model every 10th epoch
+                self.save_models() #save models every 10th epoch
             
             if epoch % 1000 == 0:
-                self.model.save_model(f"models/dqn_iter_{epoch}.pt") #saving the models, may see where the good performance was and then it might tank -> can copy
+                self.save_models(f"models/dqn/dqn_iter_{epoch}.pth") #saving the models, may see where the good performance was and then it might tank -> can copy
                 #this in as the main model. Then can start retraining from this point if needed
 
             self.writer.add_scalar("Charts/epochs",epoch,self.game_steps)
@@ -279,15 +280,12 @@ class Agent:
         self.model.save_model()
 
     #run something on the machine, and see how we perform
+    #models already loaded when this is run
     def test(self):
         normal_env = self.env
 
         state = self.env.reset()
         done = False
-
-        #TODO: make sure this works
-        self.model.load_model()
-        self.target_model.load_model()
         
         #1000 steps
         while not done:
@@ -306,4 +304,43 @@ class Agent:
         self.env.close()
         #reset
         self.env = normal_env
- 
+    
+
+    #these models take a while to train, want to save it and reload on start. Save both target and online for exact reproducibility
+    def save_models(self,epoch, game_steps,weights_filename="models/dqn/dqn_latest.pth"):
+        #state_dict() -> dictionary of the states/weights in a given model
+        # we override nn.Module, so this can be done
+
+        checkpoint = {
+            'model_state_dict': self.model.state_dict(),
+            'target_model_state_dict': self.target_model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'epsilon': self.epsilon,  # Save the current epsilon value
+            'epoch': epoch,      # Save the current epoch
+            'game_steps': game_steps,  # Save the global step
+        }
+
+        print("...saving checkpoint...")
+        if not os.path.exists("models/dqn"):
+            os.mkdir("models/dqn")
+        torch.save(checkpoint,weights_filename)
+    
+    #if model doesnt exist, we just have a random model
+    def load_models(self, weights_filename="models/dqn/dqn_latest.pth"):
+        try:
+
+            checkpoint = torch.load(weights_filename)
+            self.model.load_state_dict(checkpoint["model_state_dict"])
+            self.target_model.load_state_dict(checkpoint["target_model_state_dict"])
+            self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            self.curr_epoch = checkpoint["epoch"]
+            self.epsilon = checkpoint["epsilon"]
+            self.game_steps = checkpoint["game_steps"]
+
+            self.model.to(self.device)
+            self.target_model.to(self.device)
+
+            print(f"Loaded weights filename: {weights_filename}")            
+        except Exception as e:
+            print(f"No weights filename: {weights_filename}, using a random initialised model")
+            print(f"Error: {e}")

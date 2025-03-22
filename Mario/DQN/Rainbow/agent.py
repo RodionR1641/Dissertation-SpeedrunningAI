@@ -1,6 +1,6 @@
 import random
 import torch
-import gym
+import os
 import torch.optim as optim
 import numpy as np
 import time
@@ -12,6 +12,7 @@ from torch.nn.utils import clip_grad_norm_
 
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+load_models = True #specify if to load existing models or start from new ones
 
 
 def print_info():
@@ -278,14 +279,12 @@ class Agent_Rainbow:
                  use_vit=False,
                  ):
         
-        """
-        if os.path.exists("models"):
-            self.model.load_model(device=device)
-            self.target_model.load_model(device=device)
-        """ 
         self.device = device
 
         self.nb_actions = nb_actions
+
+        #if loading models, then continue from the epoch left off at training. otherwise start from scratch
+        self.curr_epoch = 1
 
         #hyperparameters for learning
         self.learning_rate = learning_rate
@@ -339,6 +338,10 @@ class Agent_Rainbow:
 
         #Combines adaptive learning rates with weight decay regularisation for better generalisation
         self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
+
+        #load existing models
+        if os.path.exists("models/rainbow") and load_models==True:
+            self.load_models()
 
         # transition to store in memory
         self.transition = list()
@@ -507,7 +510,7 @@ class Agent_Rainbow:
 
         episodic_return = 0
         episodic_len = 0
-        for epoch in range(1,epochs+1):
+        for epoch in range(self.curr_epoch,epochs+1):
             state = self.env.reset() #reset the environment for each iteration
             done = False
             ep_loss = 0
@@ -558,16 +561,16 @@ class Agent_Rainbow:
                         Time Steps = {self.game_steps}, Beta = {self.beta}")
                 print("")
 
-                self.model.save_model() #save model every 10th epoch
+                self.save_models()
             
             if epoch % 1000 == 0:
-                self.model.save_model(f"models/rainbow_iter_{epoch}.pt") 
+                self.save_models(f"models/rainbow/rainbow_iter_{epoch}.pth") 
                 #saving the models, may see where the good performance was and then it might tank -> can copy
                 #this in as the main model. Then can start retraining from this point if needed
         
         self.env.close()
         self.writer.close()
-        self.model.save_model()
+        self.save_models() #TODO: can save on the cluster here
 
     #run something on the machine, and see how we perform
     def test(self):
@@ -576,10 +579,6 @@ class Agent_Rainbow:
 
         state = self.env.reset()
         done = False
-
-        #TODO: make sure this works
-        self.model.load_model()
-        self.target_model.load_model()
 
         #1000 steps
         while not done:
@@ -598,3 +597,43 @@ class Agent_Rainbow:
         self.env.close()
         #reset
         self.env = normal_env
+    
+
+    #these models take a while to train, want to save it and reload on start. Save both target and online for exact reproducibility
+    def save_models(self,epoch, game_steps,weights_filename="models/rainbow/rainbow_latest.pth"):
+        #state_dict() -> dictionary of the states/weights in a given model
+        # we override nn.Module, so this can be done
+
+        checkpoint = {
+            'model_state_dict': self.model.state_dict(),
+            'target_model_state_dict': self.target_model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'beta': self.beta,  # Save the current epsilon value
+            'epoch': epoch,      # Save the current epoch
+            'game_steps': game_steps,  # Save the global step
+        }
+
+        print("...saving checkpoint...")
+        if not os.path.exists("models/rainbow"):
+            os.mkdir("models/rainbow")
+        torch.save(checkpoint,weights_filename)
+    
+    #if model doesnt exist, we just have a random model
+    def load_models(self, weights_filename="models/rainbow/rainbow_latest.pth"):
+        try:
+
+            checkpoint = torch.load(weights_filename)
+            self.model.load_state_dict(checkpoint["model_state_dict"])
+            self.target_model.load_state_dict(checkpoint["target_model_state_dict"])
+            self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            self.beta = checkpoint["beta"]
+            self.curr_epoch = checkpoint["epoch"]
+            self.game_steps = checkpoint["game_steps"]
+
+            self.model.to(self.device)
+            self.target_model.to(self.device)
+
+            print(f"Loaded weights filename: {weights_filename}")            
+        except Exception as e:
+            print(f"No weights filename: {weights_filename}, using a random initialised model")
+            print(f"Error: {e}")

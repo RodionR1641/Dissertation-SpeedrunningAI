@@ -100,24 +100,6 @@ class MarioNet(nn.Module):
         self.state_value1.reset_noise()
         self.state_value2.reset_noise() 
         self.value_layer.reset_noise()
-
-    #these models take a while to train, want to save it and reload on start
-    #use pt format
-    def save_model(self, weights_filename="models_rainbow/latest.pt"):
-        #state_dict() -> dictionary of the states/weights in a given model
-        # we override nn.Module, so this can be done
-        print("...saving checkpoint...")
-        if not os.path.exists("models"):
-            os.mkdir("models")
-        torch.save(self.state_dict(),weights_filename)
-    
-    def load_model(self, weights_filename="models_rainbow/latest.pt",device="cpu"):
-        try:
-            self.load_state_dict(torch.load(weights_filename,map_location=device,weights_only=True))
-            print(f"Loaded weights filename: {weights_filename}")            
-        except Exception as e:
-            print(f"No weights filename: {weights_filename}")
-            print(f"Error: {e}")
     
 
 # introduce noise into neural networks to encourage exploration

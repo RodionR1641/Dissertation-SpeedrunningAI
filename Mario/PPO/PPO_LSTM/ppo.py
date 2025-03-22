@@ -201,7 +201,7 @@ if __name__ == "__main__":
             obs[step] = next_obs
             dones[step] = next_done
 
-            #during roll out, dont catch any gradient
+            #during roll out, dont catch any gradient. Just get the data for training
             with torch.no_grad():
                 action,logprob,_,value,next_lstm_state = ac_model.get_action_plus_value(next_obs,next_lstm_state,next_done)
                 values[step] = value.flatten() #1d tensor
@@ -298,7 +298,6 @@ if __name__ == "__main__":
                 with torch.no_grad():
                     #calculate approximate_kl
                     old_approx_kl = (-logratio).mean() #debug variable -> helps understand how aggressively policy updates
-                    #negative log ratio -> ///
                     #howver, following approximation is a better estimate
                     approx_kl = ((ratio -1) - logratio).mean()
                     #measure how often the clip objective is triggered

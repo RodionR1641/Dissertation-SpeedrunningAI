@@ -100,20 +100,4 @@ class MarioNet(nn.Module):
             x = self.conv3(x)
             return self.flatten(x).shape[1] #get number of features after flattening
 
-    #these models take a while to train, want to save it and reload on start
-    def save_model(self, weights_filename="models/latest.pt"):
-        #state_dict() -> dictionary of the states/weights in a given model
-        # we override nn.Module, so this can be done
-        print("...saving checkpoint...")
-        if not os.path.exists("models"):
-            os.mkdir("models")
-        torch.save(self.state_dict(),weights_filename)
-    
-    def load_model(self, weights_filename="models/latest.pt",device="cpu"):
-        try:
-            self.load_state_dict(torch.load(weights_filename,map_location=device,weights_only=True))
-            print(f"Loaded weights filename: {weights_filename}")            
-        except Exception as e:
-            print(f"No weights filename: {weights_filename}")
-            print(f"Error: {e}")
     

@@ -68,6 +68,7 @@ class MarioNet(nn.Module):
         new_hidden = torch.flatten(torch.cat(new_hidden), 0, 1)
         return new_hidden, lstm_state
     
+    #just return the critic value
     def get_value(self,x,lstm_state,done):
         if x.device != self.device:
             x.to(self.device)
@@ -75,6 +76,7 @@ class MarioNet(nn.Module):
         hidden, _ = self.get_states(x, lstm_state,done)
         return self.critic(hidden) #go through cnn first then critic
 
+    #returns action, action probability distribution, entropy, critic value and the lstm state
     def get_action_plus_value(self,x,lstm_state,done,action=None):  
         if x.device != self.device:
             x.to(self.device)
