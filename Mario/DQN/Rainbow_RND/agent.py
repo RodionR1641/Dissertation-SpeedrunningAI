@@ -590,8 +590,7 @@ class Agent_Rainbow_RND:
                         Time Steps = {self.game_steps}, Extrinsic Reward = {ep_reward_extrinsic}, \
                         Intrinsic Reward = {ep_reward_intrinsic}, Beta = {self.beta}")
                 print("")
-            
-            if epoch % 100 == 0:
+                
                 self.model.save_model()
                 self.model_rnd.save_model()
 

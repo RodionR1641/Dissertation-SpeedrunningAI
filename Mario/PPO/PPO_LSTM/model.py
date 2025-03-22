@@ -18,43 +18,38 @@ class MarioNet(nn.Module):
             nn.ReLU(),
             nn.Flatten(),
             #linear layer that takes input of the flattened features
-            layer_init(nn.Linear(64*7*7, 512)), # get reduced into a 7x7 image with 64 channels 
+            layer_init(nn.Linear(64*7*7, 1024)), # get reduced into a 7x7 image with 64 channels 
             nn.ReLU(),
         )
 
-        self.lstm = nn.LSTM(512,128)
+        self.lstm = nn.LSTM(1024,128)
         for name,param in self.lstm.named_parameters():
             if "bias" in name:
                 nn.init.constant_(param,0)
             elif "weight" in name:
                 nn.init.orthogonal_(param,1.0)
 
-        # TODO: may need more layers here, and more than 512
-        self.actor = layer_init(nn.Linear(128, envs.single_action_space.n), std=0.01)
-        self.critic = layer_init(nn.Linear(128,1), std=1)
-        
-        self.device = device
-        self.to(device)
-        """
+        # TODO: may need higher numbers here
         self.critic = nn.Sequential(
-            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(),64)), #input shape to first layer is product of obesrvation space
-            nn.Tanh(),
-            layer_init(nn.Linear(64,64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64,1) , std=1.), #output linear layer uses 1 as a standard deviation
+            layer_init(nn.Linear(128,128)), #input shape to first layer is product of obesrvation space
+            nn.ReLU(),
+            layer_init(nn.Linear(128,1) , std=1.0), #output linear layer uses 1 as a standard deviation
         )
         # actor here . std=0.01 so that layer parameters have similar values so probabilty of taking each action is similar
         self.actor = nn.Sequential(
-            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(),64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64,64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64,envs.single_action_space.n) , std=0.01),
+            layer_init(nn.Linear(128,128)),
+            nn.ReLU(),
+            layer_init(nn.Linear(128,envs.single_action_space.n) , std=0.01),
         )
-        """
+        
+        self.device = device
+        self.to(device)
     
     def get_states(self,x,lstm_state,done):
-        hidden = self.network(x / 255.0)
+        if x.device != self.device:
+            x.to(self.device)
+
+        hidden = self.cnn(x / 255.0)#divide by 255 -> the image observation has a range 0-255, we get it range of 0 to 1
 
         # LSTM logic TODO: go over this
         batch_size = lstm_state[0].shape[1]
@@ -76,15 +71,13 @@ class MarioNet(nn.Module):
     def get_value(self,x,lstm_state,done):
         if x.device != self.device:
             x.to(self.device)
-        x = x/255.0
-        hidden, _ = self.get_states(x, lstm_state,done)
         #divide by 255 -> the image observation has a range 0-255, we get it range of 0 to 1
+        hidden, _ = self.get_states(x, lstm_state,done)
         return self.critic(hidden) #go through cnn first then critic
 
     def get_action_plus_value(self,x,lstm_state,done,action=None):  
         if x.device != self.device:
             x.to(self.device)
-        x = x/255.0#divide by 255 -> the image observation has a range 0-255, we get it range of 0 to 1
 
         hidden, lstm_state = self.get_states(x,lstm_state,done) #get the hidden layer output, after CNN input
         logits = self.actor(hidden) #unnormalised action probabilities

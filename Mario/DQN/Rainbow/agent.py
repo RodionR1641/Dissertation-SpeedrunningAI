@@ -558,8 +558,8 @@ class Agent_Rainbow:
                         Time Steps = {self.game_steps}, Beta = {self.beta}")
                 print("")
 
-            if epoch % 100 == 0:
-                self.model.save_model() #save model every 100th epoch
+                self.model.save_model() #save model every 10th epoch
+            
             if epoch % 1000 == 0:
                 self.model.save_model(f"models/rainbow_iter_{epoch}.pt") 
                 #saving the models, may see where the good performance was and then it might tank -> can copy

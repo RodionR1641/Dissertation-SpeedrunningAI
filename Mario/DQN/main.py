@@ -179,7 +179,7 @@ if __name__ == "__main__":
     run_name = f"{args.gym_id}__{exp_name}__{args.seed}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
     agent.video_track(run_name)# TODO: make this function 
 
-    if args.track:
+    if args.track and not testing:
         #wanbd allows to track info related to our experiment on the cloud
         wandb.init(
             project=args.wandb_project_name,
@@ -189,9 +189,8 @@ if __name__ == "__main__":
             monitor_gym=False, #monitors videos, but for old gym. Doesnt work now
             save_code=True
         )
-
-
-    patch() #make sure tensorboard graphs are saved to wandb
+        patch() #make sure tensorboard graphs are saved to wandb
+    
     #visualisation toolkit to visualise training - Tensorboard, allows to see the metrics like loss and see hyperparameters
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(

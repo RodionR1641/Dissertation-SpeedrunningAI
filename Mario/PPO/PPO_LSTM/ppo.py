@@ -74,7 +74,7 @@ def parse_args():
         help="coefficient of the value function")
     parser.add_argument("--max-grad-norm", type=float, default=0.5,
         help="the maximum norm for the gradient clipping")
-    parser.add_argument("--target-kl", type=float, default=None,
+    parser.add_argument("--target-kl", type=float, default=0.05, #0.05 is quite lenient 
         help="the target KL divergence threshold")
     
     args = parser.parse_args()
@@ -94,10 +94,30 @@ def make_env(gym_id,seed,environment_num,cap_video,name):
         return env    
     return one_env
 
+#seed setup for reproducibility
+def seed_run():
+    torch.manual_seed(args.seed)
+    if torch.backends.cudnn.enabled:
+        torch.cuda.manual_seed(args.seed)
+        #torch.backends.cudnn.benchmark = False # could be useful for reproducibility, but setting to False affects performance
+        torch.backends.cudnn.deterministic = args.torch_deterministic
+    
+    np.random.seed(args.seed)
+    random.seed(args.seed)
 
 if __name__ == "__main__":
     args = parse_args()
     run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+
+    testing = False
+
+    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+    print("device PPO LSTM: ",device)
+
+    if testing:
+        env = Mario(device=device,env_id=args.gym_id,seed=args.seed)
+        env = RecordVideo(env,f"videos/{run_name}")
+        exit() #dont need the rest of code just for a test run
 
     if args.track:
         import wandb
@@ -118,16 +138,8 @@ if __name__ == "__main__":
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
-    for i in range(100):
-        writer.add_scalar("test_loss", i*2 ,global_step=i)
     
-    #seeding
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.backends.cudnn.deterministic = args.torch_deterministic
-
-    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+    seed_run()
 
     envs = gym.vector.SyncVectorEnv(
         [make_env(args.gym_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
@@ -139,17 +151,7 @@ if __name__ == "__main__":
 
     optimizer = optim.Adam(ac_model.parameters(), lr=args.learning_rate, eps=1e-5) #epsilon decay of 1e-5 for PPO
 
-
     observations = envs.reset()
-    """
-    for _ in range(200):
-        action = envs.action_space.sample()
-        observation, reward, done, info = envs.step(action) # once the episode finishes -> discard the current observation and return initial observation of next episode
-        for item in info:
-            if "episode" in item.keys():
-                print(f"episodic_return {item['episode']['r']}")
-                # the vector environments auto reset
-    """
                 
     # Storage setup - shape is to match num_steps * num_envs size
     obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape).to(device)
@@ -173,16 +175,18 @@ if __name__ == "__main__":
     
     print(f"num_updates = {num_updates}")
 
-    print("next_obs.shape",next_obs.shape)
-    print("ac_model.get_value(next_obs)",ac_model.get_value(next_obs))
-    print("ac_model.get_value(next_obs).shape",ac_model.get_value(next_obs).shape)
-    print()
-    print("ac_model.get_action_plus_value",ac_model.get_action_plus_value(next_obs))
-
-
     # training loop -> the learning rate is annealed with each update
     #each update is one iteration of the training loop
+    episodic_reward = 0
+    episodic_len = 0
     for update in range(1,num_updates+1):
+
+        loss_total = 0
+        v_loss_total = 0
+        pg_loss_total = 0
+        entropy_loss_total = 0 
+        loss_count = 0
+
         initial_lstm_state = (next_lstm_state[0].clone(), next_lstm_state[1].clone())
         #learning rate annealing - the learning rate of adam decays linearly. Papers show this annealing allows agents to obtain higher episodic return
         if args.anneal_lr:
@@ -213,9 +217,11 @@ if __name__ == "__main__":
             #log episodic return and info
             for item in info:
                 if "episode" in item.keys():
-                    print(f"global_step={global_step}, episodic_return={item['episode']['r']}")
-                    writer.add_scalar("charts/episodic_return", item["episode"]["r"], global_step)
-                    writer.add_scalar("charts/episodic_length", item["episode"]["l"], global_step)
+                    episodic_reward = item["episode"]["r"]
+                    episodic_len = item["episode"]["l"]
+
+                    writer.add_scalar("Charts/episodic_return", episodic_reward, global_step) 
+                    writer.add_scalar("Charts/episodic_length", episodic_len, global_step)
                     break
             
         # use General Advantage Estimation(GAE) to do advantage estimation
@@ -269,8 +275,6 @@ if __name__ == "__main__":
         envinds = np.arange(args.num_envs)
         flatinds = np.arange(args.batch_size).reshape(args.num_steps, args.num_envs)
         
-        
-        #b_inds = np.arange(args.batch_size)
         clipfracs = [] # another debug variable -> measure how often the clip objective is actually triggered ///
 
         #Learning Phase - optimising the policy and value networks here
@@ -282,7 +286,7 @@ if __name__ == "__main__":
                 mb_inds = flatinds[:, mbenvinds].ravel()  # be really careful about the index
 
                 #do a forward pass on a minibatch of observations
-                _, newlogprob, entropy, newvalue, _ = ac_model.get_action_and_value(
+                _, newlogprob, entropy, newvalue, _ = ac_model.get_action_plus_value(
                     b_obs[mb_inds],
                     (initial_lstm_state[0][:, mbenvinds], initial_lstm_state[1][:, mbenvinds]),
                     b_dones[mb_inds],
@@ -317,7 +321,7 @@ if __name__ == "__main__":
                 # PPO minimises this loss: L_V = max [ (V_theta_t - V_targ)^2, (clip(V_theta_t, V_theta_t-1 - epsilon, V_theta_t-1 + epsilon) - V_targ) ^ 2]
                 newvalue = newvalue.view(-1)
                 if args.clip_vloss:
-                    #clipping, ///go over this
+                    #clipping value loss
                     v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
                     v_clipped = b_values[mb_inds] + torch.clamp(
                         newvalue - b_values[mb_inds],
@@ -338,6 +342,12 @@ if __name__ == "__main__":
                 # we want to minimise the policy loss and the value loss, and maximise the entropy loss
                 loss = pg_loss - args.ent_coef * entropy_loss + args.vf_coef * v_loss
 
+                loss_total += loss.item()
+                pg_loss_total += pg_loss.item()
+                v_loss_total += v_loss.item()
+                entropy_loss_total += entropy_loss.item()
+                loss_count += 1
+
                 #backpropagation and optimising now
                 optimizer.zero_grad()
                 loss.backward()
@@ -350,6 +360,20 @@ if __name__ == "__main__":
             if args.target_kl is not None:
                 if approx_kl > args.target_kl:
                     break
+        
+        #logged output saved in wandb 
+        if update % 10 == 0:
+            print("")
+            if loss_count > 0:
+                    print(f"SPS = {int(global_step / (time.time() - start_time))}, Episode return = {episodic_reward} \
+                            ,Episode len = {episodic_len}, Episode loss = {loss_total}, Average loss = {loss_total/loss_count} \
+                            ,Epoch = {epoch},Time Steps = {global_step}, Learning Rate ={optimizer.param_groups[0]["lr"]} \
+                            ,Last Rewards = {', '.join(map(str, rewards.flatten()))}")
+            print("")
+            ac_model.save_model() 
+        
+        if update % 1000 == 0:
+            ac_model.save_model(f"models/ppo_iter_{update}.pt")
 
         #debug variable:explained variance - indicate if the value function is a good indicator of the returns ///
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
@@ -357,7 +381,17 @@ if __name__ == "__main__":
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
         #measure stats
-        writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
+        writer.add_scalar("Charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
+        writer.add_scalar("Charts/epochs", update,global_step)
+        
+        #add average loss, more representitive
+        writer.add_scalar("losses/loss_episodic", loss_total/loss_count, global_step)
+        writer.add_scalar("losses/value_loss_episodic", v_loss_total/loss_count, global_step)
+        writer.add_scalar("losses/policy_loss_episodic", pg_loss_total/loss_count, global_step)
+        writer.add_scalar("losses/entropy_episodic", entropy_loss_total/loss_count, global_step)
+
+        #add last loss, useful for tracking quick changes
+        writer.add_scalar("losses/loss", loss.item(), global_step)
         writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
         writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
         writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
@@ -365,8 +399,43 @@ if __name__ == "__main__":
         writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
         writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
-        print("SPS:", int(global_step / (time.time() - start_time)))
-        writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+        
+        writer.add_scalar("Charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
     envs.close()
     writer.close()
+
+def test(env, device, model_path=None):
+    # Initialize the model
+    ac_model = MarioNet(env, input_shape=env.observation_space.shape, device=device)
+    
+    # Load the trained model weights
+    ac_model.load_model(model_path)
+    
+    # Reset the environment
+    state = env.reset()
+    done = False
+    
+    while not done:
+        time.sleep(0.01)
+        # Convert state to tensor, add batch dimension
+        state = torch.as_tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+        
+        # Get action from the model
+        with torch.no_grad():  # No need to compute gradients during testing
+            action, _, _, _, _ = ac_model.get_action_plus_value(state)
+        
+        # Take action in the environment
+        next_state, reward, done, info = env.step(action.cpu().numpy())
+        
+        # Update state
+        state = next_state
+        
+        # Render the environment (optional)
+        env.render()
+        if "episode" in info:
+                    episodic_return = info["episode"]["r"]
+                    episodic_len = info["episode"]["l"]
+                    print(f"episodic return = {episodic_return}, episodic len = {episodic_len}")
+    
+    env.close()

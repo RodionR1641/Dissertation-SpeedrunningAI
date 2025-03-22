@@ -76,7 +76,7 @@ def parse_args():
         help="coefficient of the value function")
     parser.add_argument("--max-grad-norm", type=float, default=0.5,
         help="the maximum norm for the gradient clipping")
-    parser.add_argument("--target-kl", type=float, default=0.05, #0.05 is quite lenient
+    parser.add_argument("--target-kl", type=float, default=0.05, #0.05 is quite lenient TODO: double check this
         help="the target KL divergence threshold")
     
     args = parser.parse_args()
@@ -109,7 +109,16 @@ def seed_run():
 if __name__ == "__main__":
     args = parse_args()
     run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    testing = False
 
+    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+    print("device PPO: ",device)
+
+    if testing:
+        env = Mario(device=device,env_id=args.gym_id,seed=args.seed)
+        env = RecordVideo(env,f"videos/{run_name}")
+        exit() #dont need the rest of code just for a test run
+    
     if args.track:
         #wanbd allows to track info related to our experiment on the cloud
         wandb.init(
@@ -131,9 +140,6 @@ if __name__ == "__main__":
     
     #seeding
     seed_run()
-
-    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
-    print("device PPO: ",device)
     #Vectorised environment - run N environments. Envs is a synchronous interface that outputs a batch of N observations from
     #N environments. The done flags then become a list for each env being done or not. Then have rollout and learn phase
     #rollout - sample actions from N environments and step for M steps. if env done, just set the done flag but can restart and continue going collecitng data
@@ -152,16 +158,6 @@ if __name__ == "__main__":
     ac_model = MarioNet(envs,input_shape=envs.envs[0].observation_space.shape,device=device) #actor critic model.
 
     optimizer = optim.Adam(ac_model.parameters(), lr=args.learning_rate, eps=1e-5) #epsilon decay of 1e-5 for PPO
-
-    """
-    for _ in range(200):
-        action = envs.action_space.sample()
-        observation, reward, done, info = envs.step(action) # once the episode finishes -> discard the current observation and return initial observation of next episode
-        for item in info:
-            if "episode" in item.keys():
-                print(f"episodic_return {item['episode']['r']}")
-                # the vector environments auto reset
-    """
                 
     # Storage setup - shape is to match num_steps * num_envs size
     obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape).to(device)
@@ -180,13 +176,6 @@ if __name__ == "__main__":
     
     print(f"num_updates = {num_updates}")
 
-    print("next_obs.shape",next_obs.shape)
-    print("ac_model.get_value(next_obs)",ac_model.get_value(next_obs))
-    print("ac_model.get_value(next_obs).shape",ac_model.get_value(next_obs).shape)
-    print()
-    print("ac_model.get_action_plus_value",ac_model.get_action_plus_value(next_obs))
-
-
     # main loop -> the learning rate is annealed with each update
     # have a rollout phase and learning phase
     # rollout - interact with the environment for a fixed number of steps to collect trajectories. Stores observation and dones
@@ -197,6 +186,8 @@ if __name__ == "__main__":
     # entropy loss, which encourages exploration. Total loss includes all of these together. We also stop early if the approximate
     # KL divergence exceeds a thershold, this is to prevent the policy changing too drastically
     #each update is one iteration of the training loop
+    episodic_reward = 0
+    episodic_len = 0
     for update in range(1,num_updates+1):
         loss_total = 0
         v_loss_total = 0
@@ -240,8 +231,6 @@ if __name__ == "__main__":
                 if "episode" in item.keys():#check if current env completed episode
                     episodic_reward = item["episode"]["r"]
                     episodic_len = item["episode"]["l"]
-
-                    print(f"global_step={global_step}, episodic_return={episodic_reward}, episodic len={episodic_len}")
 
                     writer.add_scalar("Charts/episodic_return", episodic_reward, global_step) 
                     writer.add_scalar("Charts/episodic_length", episodic_len, global_step)
@@ -425,17 +414,18 @@ if __name__ == "__main__":
         #logged output saved in wandb 
         if update % 10 == 0:
             print("")
-            print(f"Loss = {str(loss.item())}") 
-            print(f"Episodic Average Loss = {str(loss_total/loss_count)}")
-            print(f"Time Step = {str(global_step)}")
-            print("Last Reward = " + ', '.join(map(str, reward.flatten()))) 
+            if loss_count > 0:
+                    print(f"SPS = {int(global_step / (time.time() - start_time))}, Episode return = {episodic_reward} \
+                            ,Episode len = {episodic_len}, Episode loss = {loss_total}, Average loss = {loss_total/loss_count} \
+                            ,Epoch = {epoch},Time Steps = {global_step}, Learning Rate ={optimizer.param_groups[0]["lr"]} \
+                            ,Last Rewards = {', '.join(map(str, rewards.flatten()))}")
             print("")
-            ac_model.save_model()  
+            ac_model.save_model() 
         
         if update % 1000 == 0:
             ac_model.save_model(f"models/ppo_iter_{update}.pt")
 
-        #debug variable:explained variance - indicate if the value function is a good indicator of the returns ///
+        #debug variable:explained variance - indicate if the value function is a good indicator of the returns
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
@@ -460,9 +450,45 @@ if __name__ == "__main__":
         writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
         
-        print("SPS:", int(global_step / (time.time() - start_time)))
         writer.add_scalar("Charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
     ac_model.save_model()
     envs.close()
     writer.close()
+
+
+
+def test(env, device, model_path=None):
+    # Initialize the model
+    ac_model = MarioNet(env, input_shape=env.observation_space.shape, device=device)
+    
+    # Load the trained model weights
+    ac_model.load_model(model_path)
+    
+    # Reset the environment
+    state = env.reset()
+    done = False
+    
+    while not done:
+        time.sleep(0.01)
+        # Convert state to tensor, add batch dimension
+        state = torch.as_tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+        
+        # Get action from the model
+        with torch.no_grad():  # No need to compute gradients during testing
+            action, _, _, _ = ac_model.get_action_plus_value(state)
+        
+        # Take action in the environment
+        next_state, reward, done, info = env.step(action.cpu().numpy())
+        
+        # Update state
+        state = next_state
+        
+        # Render the environment (optional)
+        env.render()
+        if "episode" in info:
+                    episodic_return = info["episode"]["r"]
+                    episodic_len = info["episode"]["l"]
+                    print(f"episodic return = {episodic_return}, episodic len = {episodic_len}")
+    
+    env.close()
