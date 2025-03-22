@@ -12,7 +12,7 @@ from torch.nn.utils import clip_grad_norm_
 
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-load_models = True #specify if to load existing models or start from new ones
+load_models_flag = True #specify if to load existing models or start from new ones
 
 
 def print_info():
@@ -339,10 +339,6 @@ class Agent_Rainbow:
         #Combines adaptive learning rates with weight decay regularisation for better generalisation
         self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
 
-        #load existing models
-        if os.path.exists("models/rainbow") and load_models==True:
-            self.load_models()
-
         # transition to store in memory
         self.transition = list()
         
@@ -351,6 +347,10 @@ class Agent_Rainbow:
 
         self.is_test = False #controls the test/train mode. Better than just having 2 files
         
+        #load existing models
+        if os.path.exists("models/rainbow") and load_models_flag==True:
+            self.load_models()
+
         self.model.to(self.device)
         self.target_model.to(self.device)
         print_info()
@@ -396,7 +396,7 @@ class Agent_Rainbow:
         return next_state,reward,done, info
 
     #set the tensorboard writer
-    def set_writer(self,writer,run_name):
+    def set_writer(self,writer):
         self.writer = writer
 
 
@@ -561,16 +561,16 @@ class Agent_Rainbow:
                         Time Steps = {self.game_steps}, Beta = {self.beta}")
                 print("")
 
-                self.save_models()
+                self.save_models(epoch=epoch)
             
             if epoch % 1000 == 0:
-                self.save_models(f"models/rainbow/rainbow_iter_{epoch}.pth") 
+                self.save_models(epoch=epoch,weights_filename=f"models/rainbow/rainbow_iter_{epoch}.pth") 
                 #saving the models, may see where the good performance was and then it might tank -> can copy
                 #this in as the main model. Then can start retraining from this point if needed
         
         self.env.close()
         self.writer.close()
-        self.save_models() #TODO: can save on the cluster here
+        self.save_models(epoch=epoch) #TODO: can save on the cluster here
 
     #run something on the machine, and see how we perform
     def test(self):
@@ -600,7 +600,7 @@ class Agent_Rainbow:
     
 
     #these models take a while to train, want to save it and reload on start. Save both target and online for exact reproducibility
-    def save_models(self,epoch, game_steps,weights_filename="models/rainbow/rainbow_latest.pth"):
+    def save_models(self,epoch,weights_filename="models/rainbow/rainbow_latest.pth"):
         #state_dict() -> dictionary of the states/weights in a given model
         # we override nn.Module, so this can be done
 
@@ -608,9 +608,9 @@ class Agent_Rainbow:
             'model_state_dict': self.model.state_dict(),
             'target_model_state_dict': self.target_model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
-            'beta': self.beta,  # Save the current epsilon value
+            'beta': self.beta,  # Save the current beta value
             'epoch': epoch,      # Save the current epoch
-            'game_steps': game_steps,  # Save the global step
+            'game_steps': self.game_steps,  # Save the global step
         }
 
         print("...saving checkpoint...")
@@ -629,9 +629,6 @@ class Agent_Rainbow:
             self.beta = checkpoint["beta"]
             self.curr_epoch = checkpoint["epoch"]
             self.game_steps = checkpoint["game_steps"]
-
-            self.model.to(self.device)
-            self.target_model.to(self.device)
 
             print(f"Loaded weights filename: {weights_filename}")            
         except Exception as e:

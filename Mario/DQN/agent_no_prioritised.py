@@ -9,7 +9,7 @@ import os
 
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-load_models = True # flag to see if we want to load an existing model and continue training, or train a new one
+load_models_flag = True # flag to see if we want to load an existing model and continue training, or train a new one
 
 def print_info():
     print(f"Process {rank} started training on GPUs")
@@ -121,13 +121,6 @@ class Agent:
         #Combines adaptive learning rates with weight decay regularisation for better generalisation
         self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
 
-        self.model.to(self.device)
-        self.target_model.to(self.device)
-        
-        #load models
-        if os.path.exists("models/dqn") and load_models==True:
-            self.load_models()
-
         self.nb_actions = nb_actions
 
         #hyperparameters for DQN
@@ -149,6 +142,13 @@ class Agent:
 
         #simple uniform sampling memory        
         self.memory = ReplayBuffer(input_dims,memory_capacity,batch_size)
+
+        #load models
+        if os.path.exists("models/dqn") and load_models_flag==True:
+            self.load_models()
+        
+        self.model.to(self.device)
+        self.target_model.to(self.device)
         
         print_info()#get device information printed
 
@@ -258,10 +258,10 @@ class Agent:
                         Time Steps = {self.game_steps}, epsilon = {self.epsilon}")
                 print("")
             if epoch % 100 == 0:
-                self.save_models() #save models every 10th epoch
+                self.save_models(epoch=epoch) #save models every 100th epoch
             
             if epoch % 1000 == 0:
-                self.save_models(f"models/dqn/dqn_iter_{epoch}.pth") #saving the models, may see where the good performance was and then it might tank -> can copy
+                self.save_models(epoch=epoch,weights_filename=f"models/dqn/dqn_iter_{epoch}.pth") #saving the models, may see where the good performance was and then it might tank -> can copy
                 #this in as the main model. Then can start retraining from this point if needed
 
             self.writer.add_scalar("Charts/epochs",epoch,self.game_steps)
@@ -275,9 +275,9 @@ class Agent:
                 #last loss - up to date changes shown
                 self.writer.add_scalar("losses/loss",loss.item(),self.game_steps)
 
+        self.save_models(epoch=epoch)
         self.env.close()
         self.writer.close()
-        self.model.save_model()
 
     #run something on the machine, and see how we perform
     #models already loaded when this is run
@@ -307,7 +307,7 @@ class Agent:
     
 
     #these models take a while to train, want to save it and reload on start. Save both target and online for exact reproducibility
-    def save_models(self,epoch, game_steps,weights_filename="models/dqn/dqn_latest.pth"):
+    def save_models(self,epoch, weights_filename="models/dqn/dqn_latest.pth"):
         #state_dict() -> dictionary of the states/weights in a given model
         # we override nn.Module, so this can be done
 
@@ -317,7 +317,7 @@ class Agent:
             'optimizer_state_dict': self.optimizer.state_dict(),
             'epsilon': self.epsilon,  # Save the current epsilon value
             'epoch': epoch,      # Save the current epoch
-            'game_steps': game_steps,  # Save the global step
+            'game_steps': self.game_steps,  # Save the global step
         }
 
         print("...saving checkpoint...")

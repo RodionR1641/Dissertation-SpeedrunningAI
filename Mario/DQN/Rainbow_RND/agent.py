@@ -1,6 +1,6 @@
 import random
 import torch
-import gym
+import os
 import torch.optim as optim
 import numpy as np
 import time
@@ -13,7 +13,7 @@ from torch.nn.utils import clip_grad_norm_
 
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-video_folder = "" #TODO: make a folder here
+load_models_flag = True #specify if to load existing models or start from new ones
 
 
 def print_info():
@@ -284,6 +284,9 @@ class Agent_Rainbow_RND:
         self.device = device
 
         self.nb_actions = nb_actions
+        
+        #if loading models, then continue from the epoch left off at training. otherwise start from scratch
+        self.curr_epoch = 1
 
         #hyperparameters for learning
         self.learning_rate = learning_rate
@@ -342,7 +345,7 @@ class Agent_Rainbow_RND:
 
         #Combines adaptive learning rates with weight decay regularisation for better generalisation
         self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
-        #rnd optimiser is different
+        #rnd optimiser is different. TODO: maybe a different learning rate 
         self.optimizer_rnd = optim.AdamW(self.model_rnd.parameters(), lr=self.learning_rate)
 
         # transition to store in memory
@@ -353,8 +356,15 @@ class Agent_Rainbow_RND:
 
         self.is_test = False #controls the test/train mode. Better than just having 2 files
         
+        #load existing models
+        if os.path.exists("models/rainbow_rnd") and load_models_flag==True:
+            self.load_models()
+
         self.model.to(self.device)
         self.target_model.to(self.device)
+        self.model_rnd.to(self.device)
+        self.target_rnd.to(self.device)
+
         print_info()
 
     #Noisy net way and not epsilon greedy, so just pick the action
@@ -520,7 +530,7 @@ class Agent_Rainbow_RND:
         #kept outside outer loop to not lose the data
         episodic_return = 0 #note, this is only the extrinsic reward of the environment
         episodic_len = 0
-        for epoch in range(1,epochs+1):
+        for epoch in range(self.curr_epoch,epochs+1):
             state = self.env.reset() #reset the environment for each iteration
             done = False
             ep_reward_intrinsic = 0
@@ -590,19 +600,18 @@ class Agent_Rainbow_RND:
                         Time Steps = {self.game_steps}, Extrinsic Reward = {ep_reward_extrinsic}, \
                         Intrinsic Reward = {ep_reward_intrinsic}, Beta = {self.beta}")
                 print("")
-                
-                self.model.save_model()
-                self.model_rnd.save_model()
+            
+            if epoch % 100 == 0:
+                self.save_models(epoch=epoch)
 
             if epoch % 1000 == 0:
-                self.model.save_model(f"models/rainbow_rnd_iter_{epoch}.pt")
+                self.save_models(epoch=epoch,weights_filename=f"models/rainbow_rnd/rainbow_rnd_iter_{epoch}.pt")
                  #saving the models, may see where the good performance was and then it might tank -> can copy
                 #this in as the main model. Then can start retraining from this point if needed
         
+        self.save_models(epoch=epoch)
         self.env.close()
         self.writer.close()
-        self.model.save_model()
-        self.model_rnd.save_model()
 
     #run something on the machine, and see how we perform
     def test(self):
@@ -633,3 +642,45 @@ class Agent_Rainbow_RND:
         self.env.close()
         #reset
         self.env = normal_env
+
+    #these models take a while to train, want to save it and reload on start. Save both target and online for exact reproducibility
+    def save_models(self,epoch,weights_filename="models/rainbow/rainbow_latest.pth"):
+        #state_dict() -> dictionary of the states/weights in a given model
+        # we override nn.Module, so this can be done
+
+        checkpoint = {
+            'model_state_dict': self.model.state_dict(),
+            'target_model_state_dict': self.target_model.state_dict(),
+            'model_rnd_state_dict': self.model_rnd.state_dict(),
+            'target_rnd_state_dict': self.target_rnd.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'optimizer_rnd_state_dict': self.optimizer_rnd.state_dict(),
+            'beta': self.beta,  # Save the current beta value
+            'epoch': epoch,      # Save the current epoch
+            'game_steps': self.game_steps,  # Save the global step
+        }
+
+        print("...saving checkpoint...")
+        if not os.path.exists("models/rainbow"):
+            os.mkdir("models/rainbow")
+        torch.save(checkpoint,weights_filename)
+    
+    #if model doesnt exist, we just have a random model
+    def load_models(self, weights_filename="models/rainbow/rainbow_latest.pth"):
+        try:
+
+            checkpoint = torch.load(weights_filename)
+            self.model.load_state_dict(checkpoint["model_state_dict"])
+            self.target_model.load_state_dict(checkpoint["target_model_state_dict"])
+            self.model_rnd.load_state_dict(checkpoint["model_rnd_state_dict"])
+            self.target_rnd.load_state_dict(checkpoint["target_rnd_state_dict"])
+            self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            self.optimizer_rnd.load_state_dict(checkpoint["optimizer_rnd_state_dict"])
+            self.beta = checkpoint["beta"]
+            self.curr_epoch = checkpoint["epoch"]
+            self.game_steps = checkpoint["game_steps"]
+
+            print(f"Loaded weights filename: {weights_filename}")            
+        except Exception as e:
+            print(f"No weights filename: {weights_filename}, using a random initialised model")
+            print(f"Error: {e}")
