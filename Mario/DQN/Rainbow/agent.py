@@ -12,7 +12,6 @@ from torch.nn.utils import clip_grad_norm_
 
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-video_folder = "" #TODO: make a folder here
 
 
 def print_info():
@@ -394,7 +393,7 @@ class Agent_Rainbow:
         return next_state,reward,done, info
 
     #set the tensorboard writer
-    def set_writer(self,writer):
+    def set_writer(self,writer,run_name):
         self.writer = writer
 
 
@@ -573,25 +572,29 @@ class Agent_Rainbow:
     #run something on the machine, and see how we perform
     def test(self):
         self.is_test = True
-
-        #recording video
         normal_env = self.env
-        self.env = gym.wrappers.RecordVideo(self.env,video_folder=video_folder)
 
         state = self.env.reset()
         done = False
-        score = 0
+
+        #TODO: make sure this works
+        self.model.load_model()
+        self.target_model.load_model()
 
         #1000 steps
         while not done:
             time.sleep(0.01) #by default it runs very quickly, so slow down
             action = self.get_action(state)
-            state,reward,done, _ = self.env.step(action) #make the environment step through the game
-            score += reward
+            next_state,reward,done, info = self.env.step(action) #make the environment step through the game
+            
+            state = next_state
+
             self.env.render()
-        print("score: ",score)
+            if "episode" in info:
+                    episodic_return = info["episode"]["r"]
+                    episodic_len = info["episode"]["l"]
+                    print(f"episodic return = {episodic_return}, episodic len = {episodic_len}")
 
         self.env.close()
-
         #reset
         self.env = normal_env

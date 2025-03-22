@@ -177,6 +177,7 @@ if __name__ == "__main__":
         exit()
     
     run_name = f"{args.gym_id}__{exp_name}__{args.seed}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    agent.video_track(run_name)# TODO: make this function 
 
     if args.track:
         #wanbd allows to track info related to our experiment on the cloud
@@ -198,7 +199,7 @@ if __name__ == "__main__":
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
 
-    agent.set_writer(writer)
+    agent.set_writer(writer,run_name)
 
     if(testing):
         agent.test()

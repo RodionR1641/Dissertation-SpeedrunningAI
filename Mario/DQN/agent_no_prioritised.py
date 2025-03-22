@@ -280,26 +280,30 @@ class Agent:
 
     #run something on the machine, and see how we perform
     def test(self):
-        
-        #recording video
         normal_env = self.env
-        self.env = gym.wrappers.RecordVideo(self.env,video_folder=video_folder)
 
         state = self.env.reset()
         done = False
-        score = 0
 
+        #TODO: make sure this works
+        self.model.load_model()
+        self.target_model.load_model()
+        
         #1000 steps
         while not done:
             time.sleep(0.01) #by default it runs very quickly, so slow down
-            action = self.get_action(state,test=True)
-            state,reward,done, _ = self.env.step(action) #make the environment step through the game
-            score += reward
+            action = self.get_action(state,test=True) #dont want epsilon
+            next_state,reward,done, info = self.env.step(action) #make the environment step through the game
+            
+            state = next_state
+
             self.env.render()
-        print("score: ",score)
+            if "episode" in info:
+                    episodic_return = info["episode"]["r"]
+                    episodic_len = info["episode"]["l"]
+                    print(f"episodic return = {episodic_return}, episodic len = {episodic_len}")
 
         self.env.close()
-
         #reset
         self.env = normal_env
  

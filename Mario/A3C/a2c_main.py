@@ -258,6 +258,7 @@ if __name__ == "__main__":
 
     if(testing):
         env = Mario(args.gym_id,args.seed)
+        env = RecordVideo(env,f"videos/{run_name}")
 
         test(env=env,device=device,args=args)
     else:
