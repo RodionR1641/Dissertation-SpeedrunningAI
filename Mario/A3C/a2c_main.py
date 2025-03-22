@@ -165,13 +165,13 @@ def train(env,device,args):
         #add last loss, useful for tracking quick changes
         writer.add_scalar("losses/loss", loss, game_steps)
 
-        print("")
-        print(f"Loss = {str(loss)}")
-        print(f"Time Step = {str(game_steps)}")
-        print(f"Last Reward = "+ ', '.join(map(str, rewards.flatten())))
-        print("")
-
         if epoch % 10 == 0:
+            print("")
+            print(f"Loss = {loss}, Epoch = {epoch}, \
+                        Time Steps = {game_steps}, Last Rewards = {', '.join(map(str, rewards.flatten()))}")
+            print("")
+
+        if epoch % 100 == 0:
             agent.save_models() #save model every 10th epoch
 
         if epoch % 100 == 0:

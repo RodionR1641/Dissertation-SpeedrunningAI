@@ -1,7 +1,5 @@
 import torch
 import os
-import keyboard
-#from Rainbow.agent import Agent
 from agent_no_prioritised import Agent
 from Rainbow.agent import Agent_Rainbow
 from Rainbow_RND.agent import Agent_Rainbow_RND
@@ -12,7 +10,6 @@ from torch.utils.tensorboard import SummaryWriter
 from distutils.util import strtobool
 import argparse
 import datetime
-import time
 import wandb
 from wandb.integration.tensorboard import patch
 
@@ -52,7 +49,7 @@ def parse_args():
         help="the learning rate of the optimizer")
     parser.add_argument("--n-epochs", type=int, default=100_000,
         help="total timesteps of the experiments")
-    parser.add_argument("--memory-capacity", type=int, default=100_000,
+    parser.add_argument("--memory-capacity", type=int, default=50_000,
         help="number of experiences stored in replay buffer"),
     parser.add_argument("--memory-capacity-rainbow", type=int, default=50_000,
         help="number of experiences stored in replay buffer"),

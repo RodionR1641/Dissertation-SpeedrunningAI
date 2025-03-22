@@ -1,47 +1,31 @@
-import random
 import torch
 import copy
 import torch.optim as optim
-import torch.nn.functional as F
-from plot import LivePlot
 import numpy as np
 import time
-import os
-import logging
-import datetime
 from model import MarioNet
 from model_mobile_vit import MarioNet_ViT
 import gym
-import wandb
 
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-log_file = f"logs/dqn_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_rank{rank}.log"
 video_folder = "" #TODO: make a folder here
 
-# Configure logging
-logging.basicConfig(
-    filename=log_file,
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
-
 def print_info():
-    print("starting logging")
-    logging.info(f"Process {rank} started training on GPUs")
+    print(f"Process {rank} started training on GPUs")
 
     if torch.cuda.is_available():
         try:
-            logging.info(torch.cuda.current_device())
-            logging.info("GPU Name: " + torch.cuda.get_device_name(0))
-            logging.info("PyTorch Version: " + torch.__version__)
-            logging.info("CUDA Available: " + str(torch.cuda.is_available()))
-            logging.info("CUDA Version: " + str(torch.version.cuda))
-            logging.info("Number of GPUs: " + str(torch.cuda.device_count()))
+            print(torch.cuda.current_device())
+            print("GPU Name: " + torch.cuda.get_device_name(0))
+            print("PyTorch Version: " + torch.__version__)
+            print("CUDA Available: " + str(torch.cuda.is_available()))
+            print("CUDA Version: " + str(torch.version.cuda))
+            print("Number of GPUs: " + str(torch.cuda.device_count()))
         except RuntimeError as e:
-            logging.info(f"{e}")
+            print(f"{e}")
     else:
-        logging.info("cuda not available")
+        print("cuda not available")
 
 #agent's memory
 # The way deep q learning works: 
@@ -165,7 +149,6 @@ class Agent:
         #simple uniform sampling memory        
         self.memory = ReplayBuffer(input_dims,memory_capacity,batch_size)
         
-        logging.info(f"starting, device={device}")
         print_info()#get device information printed
 
     #state is image of our environment
@@ -198,10 +181,6 @@ class Agent:
     
     #epochs = how many iterations to train for
     def train(self, epochs):
-        #see how the model is doing over time
-        stats = {"Returns":[],"Loss": [],"AverageLoss": [], "Epsilon": []} #store as dictinary of lists
-
-        plotter = LivePlot()
 
         for epoch in range(1,epochs+1):
             state = self.env.reset() #reset the environment for each iteration
@@ -268,26 +247,15 @@ class Agent:
                 ep_return += reward
                 #print(f"Got here now, episode return={ep_return}, time step = {self.game_steps}")
 
-            # logging info
-            stats["Returns"].append(ep_return)
-            stats["Loss"].append(ep_loss)
-
-            #print("Total reward = "+str(ep_return))
-            print("Total loss = "+str(ep_loss))
-            print("curr loss = "+str(loss))
-            print("Time Steps = "+str(self.game_steps))
-
             #gatherin stats
+            if epoch % 10 == 0:
+                print("")
+                if loss_count > 0:
+                    print(f"Episode loss = {ep_loss}, Average loss = {ep_loss/loss_count}, Epoch = {epoch}, \
+                        Time Steps = {self.game_steps}, epsilon = {self.epsilon}")
+                print("")
             if epoch % 100 == 0:
                 self.model.save_model() #save model every 10th epoch
-
-                stats["Epsilon"].append(self.epsilon) #see where the epsilon was at. Do we see higher returns with high epsilon, or only when it dropped etc
-
-                if(len(stats["Loss"]) > 100):
-                    logging.info(f"Epoch: {epoch} - Average loss: {np.mean(stats['Loss'][-100:])}  - Epsilon: {self.epsilon} ")
-                else:
-                    #for the first 100 iterations, just return the episode return,otherwise return the average like above
-                    logging.info(f"Epoch: {epoch} - Episode loss: {np.mean(stats['Loss'][-1:])}  - Epsilon: {self.epsilon} ")
             
             if epoch % 1000 == 0:
                 self.model.save_model(f"models/dqn_iter_{epoch}.pt") #saving the models, may see where the good performance was and then it might tank -> can copy
@@ -305,12 +273,8 @@ class Agent:
                 self.writer.add_scalar("losses/loss",loss.item(),self.game_steps)
 
         self.env.close()
-        #save log file on cloud
-        log_artifact = wandb.Artifact(name="dqn_log", type="logs")
-        log_artifact.add_file(log_file)
-        wandb.log_artifact(log_artifact)
-        return stats
-    
+        self.writer.close()
+        self.model.save_model()
 
     #run something on the machine, and see how we perform
     def test(self):

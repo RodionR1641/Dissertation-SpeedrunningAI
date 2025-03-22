@@ -1,15 +1,9 @@
 import random
 import torch
-import copy
 import gym
 import torch.optim as optim
-import torch.nn.functional as F
-from plot import LivePlot
 import numpy as np
 import time
-import os
-import logging
-import datetime
 from Rainbow_RND.rainbow_model import MarioNet, RND_model
 from model_mobile_vit import MarioNet_ViT
 from collections import deque
@@ -19,32 +13,24 @@ from torch.nn.utils import clip_grad_norm_
 
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-log_file = f"logs/rainbow_rnd_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_rank{rank}.log"
 video_folder = "" #TODO: make a folder here
 
-# Configure logging
-logging.basicConfig(
-    filename=log_file,
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
 
 def print_info():
-    print("starting logging")
-    logging.info(f"Process {rank} started training on GPUs")
+    print(f"Process {rank} started training on GPUs")
 
     if torch.cuda.is_available():
         try:
-            logging.info(torch.cuda.current_device())
-            logging.info("GPU Name: " + torch.cuda.get_device_name(0))
-            logging.info("PyTorch Version: " + torch.__version__)
-            logging.info("CUDA Available: " + str(torch.cuda.is_available()))
-            logging.info("CUDA Version: " + str(torch.version.cuda))
-            logging.info("Number of GPUs: " + str(torch.cuda.device_count()))
+            print(torch.cuda.current_device())
+            print("GPU Name: " + torch.cuda.get_device_name(0))
+            print("PyTorch Version: " + torch.__version__)
+            print("CUDA Available: " + str(torch.cuda.is_available()))
+            print("CUDA Version: " + str(torch.version.cuda))
+            print("Number of GPUs: " + str(torch.cuda.device_count()))
         except RuntimeError as e:
-            logging.info(f"{e}")
+            print(f"{e}")
     else:
-        logging.info("cuda not available")
+        print("cuda not available")
 
 class ReplayBuffer():
 
@@ -369,11 +355,10 @@ class Agent_Rainbow_RND:
         
         self.model.to(self.device)
         self.target_model.to(self.device)
-        logging.info(f"starting, device={device}")
         print_info()
 
     #Noisy net way and not epsilon greedy, so just pick the action
-    def get_action(self,state,test=False):
+    def get_action(self,state):
         
         #convert state into np_array for calculations, then make a tensor, then unsqueese to add batch dimension
         state = torch.tensor(np.array(state), dtype=torch.float32) \
@@ -530,8 +515,6 @@ class Agent_Rainbow_RND:
 
     #epochs = how many iterations to train for
     def train(self, epochs):
-        #see how the model is doing over time. Have separate storage for extrinsic and intrinsic loss
-        stats = {"Total Rewards":[],"Loss": []} #store as dictinary of lists
 
         self.is_test = False
 
@@ -600,22 +583,27 @@ class Agent_Rainbow_RND:
                 self.writer.add_scalar("losses/loss",loss,self.game_steps)
 
             #gatherin stats
-            if epoch % 100 == 0:
-                self.model.save_model() #save model every 10th epoch
-
-                if(len(stats["Loss"]) > 100):
-                    logging.info(f"Epoch: {epoch} - Average loss: {np.mean(stats['Loss'][-100:])}  - TimeStep: {self.game_steps} ")
-                else:
-                    #for the first 100 iterations, just return the episode return,otherwise return the average like above
-                    logging.info(f"Epoch: {epoch} - Episode loss: {np.mean(stats['Loss'][-1:])}  - TimeStep: {self.game_steps} ")
+            if epoch % 10 == 0:
+                print("")
+                if loss_count > 0:
+                    print(f"Episode loss = {ep_loss}, Average loss = {ep_loss/loss_count}, Epoch = {epoch}, \
+                        Time Steps = {self.game_steps}, Extrinsic Reward = {ep_reward_extrinsic}, \
+                        Intrinsic Reward = {ep_reward_intrinsic}, Beta = {self.beta}")
+                print("")
             
+            if epoch % 100 == 0:
+                self.model.save_model()
+                self.model_rnd.save_model()
+
             if epoch % 1000 == 0:
                 self.model.save_model(f"models/rainbow_rnd_iter_{epoch}.pt")
                  #saving the models, may see where the good performance was and then it might tank -> can copy
                 #this in as the main model. Then can start retraining from this point if needed
         
         self.env.close()
-        return stats
+        self.writer.close()
+        self.model.save_model()
+        self.model_rnd.save_model()
 
     #run something on the machine, and see how we perform
     def test(self):
