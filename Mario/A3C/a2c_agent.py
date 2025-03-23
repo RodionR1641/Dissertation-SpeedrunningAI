@@ -20,6 +20,7 @@ class Agent:
         self.game_steps = 0
         self.curr_epoch = 1
         self.device = device
+        print(f"Device for Agent = {device}")
 
 
     def choose_action_entropy(self,states):

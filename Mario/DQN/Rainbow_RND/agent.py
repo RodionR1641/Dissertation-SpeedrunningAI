@@ -368,6 +368,7 @@ class Agent_Rainbow_RND:
         self.target_model.to(self.device)
         self.model_rnd.to(self.device)
         self.target_rnd.to(self.device)
+        print(f"Device for Agent = {device}")
 
         print_info()
 

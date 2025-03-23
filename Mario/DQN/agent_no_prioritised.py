@@ -152,6 +152,7 @@ class Agent:
         
         self.model.to(self.device)
         self.target_model.to(self.device)
+        print(f"Device for Agent = {device}")
         
         print_info()#get device information printed
 

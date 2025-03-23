@@ -12,36 +12,49 @@ import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from gym.wrappers import RecordVideo
 from mario import Mario
-from model import MarioNet
+from model_lstm import MarioNet
 from wandb.integration.tensorboard import patch
+
+#exception class to handle loading of models
+class ModelLoadingError(Exception):
+    pass
+
 
 def test(env, device):
 
-    # Reset the environment
     state = env.reset()
+
     done = False
+    next_done = torch.zeros(1).to(device)
+
+    #using 1s instead of 0s to initialise the LSTM. Area of research on article https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
+    next_lstm_state = (
+        torch.ones(ac_model.lstm.num_layers, 1, ac_model.lstm.hidden_size).to(device),
+        torch.ones(ac_model.lstm.num_layers, 1, ac_model.lstm.hidden_size).to(device),
+    )# hidden and cell states 
     
     while not done:
         time.sleep(0.01)
         # Convert state to tensor, add batch dimension
+        state = np.array(state)
         state = torch.as_tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
         
         # Get action from the model
         with torch.no_grad():  # No need to compute gradients during testing
-            action, _, _, _, _ = ac_model.get_action_plus_value(state)
+            action, _, _, _, next_lstm_state = ac_model.get_action_plus_value(state,next_lstm_state,next_done)
         
         # Take action in the environment
-        next_state, reward, done, info = env.step(action.cpu().numpy())
+        next_state, reward, done, info = env.step(action.item())
         
-        # Update state
         state = next_state
+        next_done = torch.tensor([0.0]) if not False else torch.tensor([1.0])
         
         # Render the environment (optional)
         env.render()
         if "episode" in info:
-                    episodic_return = info["episode"]["r"]
-                    episodic_len = info["episode"]["l"]
-                    print(f"episodic return = {episodic_return}, episodic len = {episodic_len}")
+            episodic_return = info["episode"]["r"]
+            episodic_len = info["episode"]["l"]
+            print(f"episodic return = {episodic_return}, episodic len = {episodic_len}")
     
     env.close()
 
@@ -59,8 +72,8 @@ def save_models(num_updates,global_step, weights_filename="models/ppo_lstm/ppo_l
     }
 
     print("...saving checkpoint...")
-    if not os.path.exists("models/ppo"):
-        os.mkdir("models/ppo")
+    if not os.path.exists("models/ppo_lstm"):
+        os.mkdir("models/ppo_lstm")
     torch.save(checkpoint,weights_filename)
 
 #if model doesnt exist, we just have a random model
@@ -83,6 +96,7 @@ def load_models(weights_filename="models/ppo_lstm/ppo_lstm_latest.pth"):
     except Exception as e:
         print(f"No weights filename: {weights_filename}, using a random initialised model")
         print(f"Error: {e}")
+        raise ModelLoadingError(f"Failed to load models from {weights_filename}") from e
 
 def parse_args():
     # fmt: off
@@ -102,9 +116,14 @@ def parse_args():
     parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, cuda will be enabled by default")
     
-    #
+    #tracking flag
     parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
+    #testing flag
+    parser.add_argument("--testing", type=lambda x: bool(strtobool(x)), default= True , nargs="?", const=True,
+        help="set to true if just want to test the agent playing the game")
+    
+
     parser.add_argument("--wandb-project-name", type=str, default="RL_Mario",
         help="the wandb's project name")
     parser.add_argument("--wandb-entity", type=str, default=None,
@@ -181,7 +200,7 @@ if __name__ == "__main__":
     args = parse_args()
     run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
 
-    testing = False
+    testing = args.testing
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
     print("device PPO LSTM: ",device)
@@ -214,10 +233,13 @@ if __name__ == "__main__":
 
     #load the model to continue training
     if load_models_flag == True:
-        curr_num_updates, global_step = load_models()
+        try:
+            curr_num_updates, global_step = load_models()
+        except ModelLoadingError as e:
+            pass #no need to do anything here, just keep global_step and curr_updates 0
 
     if testing:
-        env = Mario(device=device,env_id=args.gym_id,seed=args.seed)
+        env = Mario(device=device,env_id=args.gym_id,seed=args.seed,num_stack=1) #num stack 1 for LSTM
         test(env,device)
         exit() #dont need the rest of code just for a test run
 
@@ -494,8 +516,7 @@ if __name__ == "__main__":
             if loss_count > 0:
                     print(f"SPS = {int(global_step / (time.time() - start_time))}, Episode return = {episodic_reward} \
                             ,Episode len = {episodic_len}, Episode loss = {loss_total}, Average loss = {loss_total/loss_count} \
-                            ,Epoch = {epoch},Time Steps = {global_step}, Learning Rate ={optimizer.param_groups[0]["lr"]} \
-                            ,Last Rewards = {', '.join(map(str, rewards.flatten()))}")
+                            ,Epoch = {epoch},Time Steps = {global_step}, Learning Rate ={optimizer.param_groups[0]['lr']}")
             print("")
         if update % 100 == 0:
             save_models(num_updates=update,global_step=global_step)

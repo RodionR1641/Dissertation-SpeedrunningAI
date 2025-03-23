@@ -16,6 +16,10 @@ import wandb
 from wandb.integration.tensorboard import patch
 import datetime
 
+#exception class to handle loading of models
+class ModelLoadingError(Exception):
+    pass
+
 def test(env, device):
     
     # Reset the environment
@@ -25,6 +29,7 @@ def test(env, device):
     while not done:
         time.sleep(0.01)
         # Convert state to tensor, add batch dimension
+        state = np.array(state)
         state = torch.as_tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
         
         # Get action from the model
@@ -32,7 +37,7 @@ def test(env, device):
             action, _, _, _ = ac_model.get_action_plus_value(state)
         
         # Take action in the environment
-        next_state, reward, done, info = env.step(action.cpu().numpy())
+        next_state, reward, done, info = env.step(action.item())
         
         # Update state
         state = next_state
@@ -84,6 +89,7 @@ def load_models(weights_filename="models/ppo/ppo_latest.pth"):
     except Exception as e:
         print(f"No weights filename: {weights_filename}, using a random initialised model")
         print(f"Error: {e}")
+        raise ModelLoadingError(f"Failed to load models from {weights_filename}") from e
 
 
 def parse_args():
@@ -104,9 +110,14 @@ def parse_args():
     parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, cuda will be enabled by default")
     
-    #
+    #tracking flag
     parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
+    #testing flag
+    parser.add_argument("--testing", type=lambda x: bool(strtobool(x)), default= True , nargs="?", const=True,
+        help="set to true if just want to test the agent playing the game")
+
+
     parser.add_argument("--wandb-project-name", type=str, default="RL_Mario",
         help="the wandb's project name")
     parser.add_argument("--wandb-entity", type=str, default=None,
@@ -182,7 +193,7 @@ if __name__ == "__main__":
     load_models_flag = True #decide if to load models or not
     args = parse_args()
     run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
-    testing = False
+    testing = args.testing
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
     print("device PPO: ",device)
@@ -211,11 +222,14 @@ if __name__ == "__main__":
 
     #track number of environment steps
     global_step = 0
-    curr_num_updates = 0
+    curr_num_updates = 1
 
     #load the model to continue training
     if load_models_flag == True:
-        curr_num_updates, global_step = load_models()
+        try:
+            curr_num_updates, global_step = load_models()
+        except ModelLoadingError as e:
+            pass #no need to do anything here, just keep global_step and curr_updates 0
 
     if testing:
         env = Mario(device=device,env_id=args.gym_id,seed=args.seed)
@@ -540,8 +554,7 @@ if __name__ == "__main__":
             if loss_count > 0:
                     print(f"SPS = {int(global_step / (time.time() - start_time))}, Episode return = {episodic_reward} \
                             ,Episode len = {episodic_len}, Episode loss = {loss_total}, Average loss = {loss_total/loss_count} \
-                            ,Epoch = {epoch},Time Steps = {global_step}, Learning Rate ={optimizer.param_groups[0]["lr"]} \
-                            ,Last Rewards = {', '.join(map(str, rewards.flatten()))}")
+                            ,Epoch = {epoch},Time Steps = {global_step}, Learning Rate ={optimizer.param_groups[0]['lr']}")
             print("")
         if update % 100 == 0:
             save_models(num_updates=update,global_step=global_step) 

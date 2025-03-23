@@ -356,6 +356,7 @@ class Agent_Rainbow:
 
         self.model.to(self.device)
         self.target_model.to(self.device)
+        print(f"Device for Agent = {device}")
         print_info()
 
     def record_video(self,run_name):

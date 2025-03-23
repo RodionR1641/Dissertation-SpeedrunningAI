@@ -112,7 +112,7 @@ def train(env,device,args):
     lam = args.lam
     ent_coef = args.ent_coef # coefficient for entropy bonus (encourage exploration)
 
-    agent = Agent(input_shape=env.envs[0].observation_space.shape,lr_rate=alpha,
+    agent = Agent(input_shape=env.envs[0].observation_space.shape,device=device,lr_rate=alpha,
                   n_actions=n_actions,gamma=gamma,num_envs=num_envs)
     
     if load_models_flag == True:
@@ -175,7 +175,7 @@ def train(env,device,args):
         if epoch % 10 == 0:
             print("")
             print(f"Loss = {loss}, Epoch = {epoch}, \
-                        Time Steps = {game_steps}, Last Rewards = {', '.join(map(str, rewards.flatten()))}")
+                        Time Steps = {game_steps}")
             print("")
 
         if epoch % 10 == 0:
