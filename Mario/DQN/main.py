@@ -35,7 +35,7 @@ def parse_args():
         help="the entity (team) of wandb's project")
     parser.add_argument("--capture-video", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="weather to capture videos of the agent performances (check out `videos` folder)")
-    parser.add_argument("--testing", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    parser.add_argument("--testing", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="tells whether training or testing agent")
     
     parser.add_argument("--agent-type", type=int, default=0,
@@ -179,6 +179,8 @@ if __name__ == "__main__":
         exit()
     
     run_name = f"{args.gym_id}__{exp_name}__{args.seed}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    
+    agent.record_video(run_name)
 
     if(testing):
         agent.test()

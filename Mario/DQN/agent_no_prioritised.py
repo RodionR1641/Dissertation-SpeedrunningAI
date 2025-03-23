@@ -106,8 +106,6 @@ class Agent:
                  use_vit=False
                  ):
 
-        env = RecordVideo(env,"videos/DQN",name_prefix=f"dqn_episode_{self.episode}"
-                          ,episode_trigger=lambda x: x % 100 == 0)  # Record every 1000th episode
         self.env = env
         self.device = device
 
@@ -156,6 +154,10 @@ class Agent:
         self.target_model.to(self.device)
         
         print_info()#get device information printed
+
+    def record_video(self,run_name):
+        self.env = RecordVideo(self.env,"videos/DQN",name_prefix=f"{run_name}_{self.epoch}"
+                          ,episode_trigger=lambda x: x % 100 == 0)  # Record every 100th episode
 
     #state is image of our environment
     def get_action(self,state,test=False):

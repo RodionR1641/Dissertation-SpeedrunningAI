@@ -15,13 +15,8 @@ from mario import Mario
 from model import MarioNet
 from wandb.integration.tensorboard import patch
 
-def test(env, device, model_path=None):
-    # Initialize the model
-    ac_model = MarioNet(env, input_shape=env.observation_space.shape, device=device)
-    
-    # Load the trained model weights
-    ac_model.load_model(model_path)
-    
+def test(env, device):
+
     # Reset the environment
     state = env.reset()
     done = False
@@ -81,7 +76,8 @@ def load_models(weights_filename="models/ppo_lstm/ppo_lstm_latest.pth"):
 
         ac_model.to(device)
 
-        print(f"Loaded weights filename: {weights_filename}")
+        print(f"Loaded weights filename: {weights_filename}, curr_epoch_update = {num_updates}, \
+                  game steps = {global_step}, optimizer learning rate = { checkpoint['learning_rate']}")    
 
         return num_updates, global_step            
     except Exception as e:
@@ -159,12 +155,13 @@ def parse_args():
 
 
 
-def make_env(gym_id,seed,environment_num,cap_video,name):
+def make_env(gym_id,seed,environment_num,cap_video,run_name):
     def one_env():
         env = Mario(device=device,env_id=gym_id,seed=seed,num_stack=1) #num stack is 1 for LSTM
         if(cap_video):
             if environment_num == 0:
-                env = RecordVideo(env,f"videos/{name}")
+                env = RecordVideo(env,"videos/PPO_LSTM",name_prefix=f"{run_name}" 
+                          ,episode_trigger=lambda x: x % 100 == 0)  # Record every 100th episode
         return env    
     return one_env
 
@@ -221,7 +218,6 @@ if __name__ == "__main__":
 
     if testing:
         env = Mario(device=device,env_id=args.gym_id,seed=args.seed)
-        env = RecordVideo(env,f"videos/{run_name}")
         test(env,device)
         exit() #dont need the rest of code just for a test run
 
@@ -269,7 +265,7 @@ if __name__ == "__main__":
 
             # append the run_id to the file if it's not already there
             # if run_id is None -> there wasnt a previous one in this file, so need to append the current one to become first
-            if run_id is None or str(run.id) not in lines:
+            if run_id is None or (run.id+"\n") not in lines:
                 with open(run_id_file, "a") as f:
                     f.write(f"{run.id}\n")  # Append the run_id as a new line
 

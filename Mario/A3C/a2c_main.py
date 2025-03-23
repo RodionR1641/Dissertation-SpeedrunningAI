@@ -56,7 +56,9 @@ def parse_args():
         help="the entity (team) of wandb's project")
     parser.add_argument("--capture-video", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="whether to capture videos of the agent performances (check out `videos` folder)")
-    parser.add_argument("--testing", type=lambda x: bool(strtobool(x)), default= False, nargs="?", const=True,
+    
+    #testing flag
+    parser.add_argument("--testing", type=lambda x: bool(strtobool(x)), default= True , nargs="?", const=True,
         help="set to true if just want to test the agent playing the game")
 
     
@@ -80,12 +82,13 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-def make_env(gym_id,seed,environment_num,cap_video,name):
+def make_env(gym_id,seed,environment_num,cap_video,run_name):
     def one_env():
         env = Mario(env_id=gym_id,seed=seed)
         if(cap_video):
             if environment_num == 0:
-                env = RecordVideo(env,f"videos/{name}")
+                env = RecordVideo(env,"videos/A2C",name_prefix=f"{run_name}" 
+                          ,episode_trigger=lambda x: x % 100 == 0)  # Record every 100th episode
         return env    
     return one_env
 
@@ -163,7 +166,7 @@ def train(env,device,args):
 
         loss = agent.update_params(critic_loss,actor_loss)
 
-        writer.add_scalar("Charts/learning_rate", agent.optimiser.param_groups[0]["lr"], game_steps)
+        writer.add_scalar("Charts/learning_rate", agent.optimizer.param_groups[0]["lr"], game_steps)
         writer.add_scalar("Charts/epochs", epoch, global_step=game_steps)
 
         #add last loss, useful for tracking quick changes
@@ -175,7 +178,7 @@ def train(env,device,args):
                         Time Steps = {game_steps}, Last Rewards = {', '.join(map(str, rewards.flatten()))}")
             print("")
 
-        if epoch % 100 == 0:
+        if epoch % 10 == 0:
             agent.save_models(epoch=epoch) #save model every 100th epoch
 
         if epoch % 100 == 0:
@@ -200,13 +203,13 @@ def test(env,device,args):
     state = env.reset()
 
     while not done:
+        state = np.array(state)#make a single array for efficincy
         state = torch.as_tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
-
         # Get action from the agent
         with torch.no_grad():  # No need to compute gradients during testing
             action, _, _, _ = agent.choose_action_entropy(state)
 
-            next_state, reward, done, info = env.step(action)
+            next_state, reward, done, info = env.step(action.item())
 
             state = next_state
 
@@ -229,12 +232,12 @@ if __name__ == "__main__":
 
     print_info()
     testing = args.testing
+    num_envs = args.num_envs
     run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     if(testing):
         env = Mario(args.gym_id,args.seed)
-        env = RecordVideo(env,f"videos/{run_name}")
 
         test(env=env,device=device,args=args)
         exit()#only test 
@@ -283,7 +286,7 @@ if __name__ == "__main__":
 
             # append the run_id to the file if it's not already there
             # if run_id is None -> there wasnt a previous one in this file, so need to append the current one to become first
-            if run_id is None or str(run.id) not in lines:
+            if run_id is None or (run.id+"\n") not in lines:
                 with open(run_id_file, "a") as f:
                     f.write(f"{run.id}\n")  # Append the run_id as a new line
 
@@ -302,7 +305,6 @@ if __name__ == "__main__":
     )
 
     seed_run()
-    num_envs = args.num_envs
 
     env = SyncVectorEnv(
         [make_env(args.gym_id, args.seed + i, i, args.capture_video, run_name) for i in range(num_envs)]

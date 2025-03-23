@@ -344,8 +344,6 @@ class Agent_Rainbow:
         self.transition = list()
         
         self.game_steps = 0 #track how many steps taken over entire training
-        
-        env = RecordVideo(env,"videos/Rainbow",episode_trigger=lambda x: x % 1000 == 0)  # Record every 1000th episode
         self.env = env
 
         self.is_test = False #controls the test/train mode. Better than just having 2 files
@@ -354,10 +352,16 @@ class Agent_Rainbow:
         if os.path.exists("models/rainbow") and load_models_flag==True:
             self.load_models()
 
+        self.epoch = self.curr_epoch #track the current epoch
+
         self.model.to(self.device)
         self.target_model.to(self.device)
         print_info()
 
+    def record_video(self,run_name):
+        self.env = RecordVideo(self.env,"videos/Rainbow_RND",name_prefix=f"{run_name}_{self.epoch}"
+                          ,episode_trigger=lambda x: x % 100 == 0)  # Record every 100th episode
+        
     #Noisy net way and not epsilon greedy, so just pick the action
     def get_action(self,state):
         
@@ -519,6 +523,7 @@ class Agent_Rainbow:
             ep_loss = 0
             loss_count = 0
             loss = 0
+            self.epoch = epoch
 
             while not done:
                 action = self.get_action(state) #this will store the state and action in transition
@@ -564,7 +569,7 @@ class Agent_Rainbow:
                         Time Steps = {self.game_steps}, Beta = {self.beta}")
                 print("")
             
-            if epoch % 1 == 0:
+            if epoch % 10 == 0:
                 self.save_models(epoch=epoch) #save models every 10th epoch
             
             if epoch % 1000 == 0:

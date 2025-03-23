@@ -112,7 +112,8 @@ class Agent:
 
             self.actor_critic.to(self.device)
 
-            print(f"Loaded weights filename: {weights_filename}")            
+            print(f"Loaded weights filename: {weights_filename}, curr_epoch = {self.curr_epoch}, \
+                  game steps = {self.game_steps}")               
         except Exception as e:
             print(f"No weights filename: {weights_filename}, using a random initialised model")
             print(f"Error: {e}")

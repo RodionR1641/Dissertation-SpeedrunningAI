@@ -346,7 +346,7 @@ class Agent_Rainbow_RND:
 
         #Combines adaptive learning rates with weight decay regularisation for better generalisation
         self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
-        #rnd optimiser is different. TODO: maybe a different learning rate 
+        #rnd optimizer is different. TODO: maybe a different learning rate 
         self.optimizer_rnd = optim.AdamW(self.model_rnd.parameters(), lr=self.learning_rate)
 
         # transition to store in memory
@@ -354,7 +354,6 @@ class Agent_Rainbow_RND:
         
         self.game_steps = 0 #track how many steps taken over entire training
 
-        env = RecordVideo(env,"videos/Rainbow_RND",episode_trigger=lambda x: x % 1000 == 0)  # Record every 1000th episode
         self.env = env
 
         self.is_test = False #controls the test/train mode. Better than just having 2 files
@@ -362,6 +361,8 @@ class Agent_Rainbow_RND:
         #load existing models
         if os.path.exists("models/rainbow_rnd") and load_models_flag==True:
             self.load_models()
+        
+        self.epoch = self.curr_epoch #track the current epoch
 
         self.model.to(self.device)
         self.target_model.to(self.device)
@@ -369,6 +370,10 @@ class Agent_Rainbow_RND:
         self.target_rnd.to(self.device)
 
         print_info()
+
+    def record_video(self,run_name):
+        self.env = RecordVideo(self.env,"videos/Rainbow_RND",name_prefix=f"{run_name}_{self.epoch}"
+                          ,episode_trigger=lambda x: x % 100 == 0)  # Record every 100th episode
 
     #Noisy net way and not epsilon greedy, so just pick the action
     def get_action(self,state):
@@ -541,6 +546,7 @@ class Agent_Rainbow_RND:
             ep_loss = 0
             loss_count = 0
             loss = 0
+            self.epoch = epoch
 
             while not done:
                 action = self.get_action(state) #this will store the state and action in transition
@@ -604,7 +610,7 @@ class Agent_Rainbow_RND:
                         Intrinsic Reward = {ep_reward_intrinsic}, Beta = {self.beta}")
                 print("")
             
-            if epoch % 1 == 0:
+            if epoch % 10 == 0:
                 self.save_models(epoch=epoch)
 
             if epoch % 1000 == 0:
@@ -679,7 +685,8 @@ class Agent_Rainbow_RND:
             self.curr_epoch = checkpoint["epoch"]
             self.game_steps = checkpoint["game_steps"]
 
-            print(f"Loaded weights filename: {weights_filename}")            
+            print(f"Loaded weights filename: {weights_filename}, curr_epoch = {self.curr_epoch}, beta = {self.beta}, \
+                  game steps = {self.game_steps}")    
         except Exception as e:
             print(f"No weights filename: {weights_filename}, using a random initialised model")
             print(f"Error: {e}")
