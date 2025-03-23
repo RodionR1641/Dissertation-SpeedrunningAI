@@ -9,6 +9,7 @@ from model_mobile_vit import MarioNet_ViT
 from collections import deque
 from segment_tree import MinSegmentTree, SumSegmentTree
 from torch.nn.utils import clip_grad_norm_
+from gym.wrappers import RecordVideo
 
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
@@ -343,6 +344,8 @@ class Agent_Rainbow:
         self.transition = list()
         
         self.game_steps = 0 #track how many steps taken over entire training
+        
+        env = RecordVideo(env,"videos/Rainbow",episode_trigger=lambda x: x % 1000 == 0)  # Record every 1000th episode
         self.env = env
 
         self.is_test = False #controls the test/train mode. Better than just having 2 files
@@ -560,8 +563,9 @@ class Agent_Rainbow:
                         Episode loss = {ep_loss}, Average loss = {ep_loss/loss_count}, Epoch = {epoch}, \
                         Time Steps = {self.game_steps}, Beta = {self.beta}")
                 print("")
-
-                self.save_models(epoch=epoch)
+            
+            if epoch % 1 == 0:
+                self.save_models(epoch=epoch) #save models every 10th epoch
             
             if epoch % 1000 == 0:
                 self.save_models(epoch=epoch,weights_filename=f"models/rainbow/rainbow_iter_{epoch}.pth") 

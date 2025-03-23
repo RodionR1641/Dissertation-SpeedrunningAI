@@ -12,6 +12,7 @@ import argparse
 import datetime
 import wandb
 from wandb.integration.tensorboard import patch
+import gymnasium as gym
 
 
 def parse_args():
@@ -37,7 +38,7 @@ def parse_args():
     parser.add_argument("--testing", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="tells whether training or testing agent")
     
-    parser.add_argument("--agent-type", type=int, default=1,
+    parser.add_argument("--agent-type", type=int, default=0,
         help="tells which DQN agent to use: 0=dueling double, 1=rainbow, 2=rainbow with RND")
     
     parser.add_argument("--num-epochs", type=int, default=200_000,
@@ -178,7 +179,10 @@ if __name__ == "__main__":
         exit()
     
     run_name = f"{args.gym_id}__{exp_name}__{args.seed}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
-    agent.video_track(run_name)# TODO: make this function 
+
+    if(testing):
+        agent.test()
+        exit()
 
     if args.track:
         run_id = None
@@ -202,7 +206,7 @@ if __name__ == "__main__":
                     entity=args.wandb_entity,
                     config=vars(args),
                     name=run_name,
-                    monitor_gym=False, # Monitors videos, but for old gym. Doesn't work now
+                    monitor_gym=True, # Monitors videos, but for old gym. Doesn't work now
                     save_code=True
                 )
                 print(f"Resumed existing run with ID: {run_id}")
@@ -213,18 +217,17 @@ if __name__ == "__main__":
                     entity=args.wandb_entity,
                     config=vars(args),
                     name=run_name,
-                    monitor_gym=False, # Monitors videos, but for old gym. Doesn't work now
+                    monitor_gym=True, # Monitors videos, but for old gym. Doesn't work now
                     save_code=True
                 )
                 print(f"Started new run with ID: {run.id}")
-
             # Save the current run_id to the file
             if not os.path.exists("wandb_ids"):
                 os.makedirs("wandb_ids")
 
             # append the run_id to the file if it's not already there
             # if run_id is None -> there wasnt a previous one in this file, so need to append the current one to become first
-            if run_id is None or str(run.id) not in lines:
+            if run_id is None or (run.id+"\n") not in lines:
                 with open(run_id_file, "a") as f:
                     f.write(f"{run.id}\n")  # Append the run_id as a new line
 
@@ -242,9 +245,9 @@ if __name__ == "__main__":
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
 
-    agent.set_writer(writer,run_name)
+    agent.set_writer(writer)
 
-    if(testing):
-        agent.test()
-    else:
-        agent.train(args.num_epochs) #pass the Mario environment for agent to train on
+    agent.train(args.num_epochs) #pass the Mario environment for agent to train on
+
+    if args.track:
+        wandb.finish()

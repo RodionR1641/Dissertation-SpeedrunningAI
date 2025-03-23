@@ -9,6 +9,7 @@ from model_mobile_vit import MarioNet_ViT
 from collections import deque
 from segment_tree import MinSegmentTree, SumSegmentTree
 from torch.nn.utils import clip_grad_norm_
+from gym.wrappers import RecordVideo
 
 
 # Define log file name (per process)
@@ -352,6 +353,8 @@ class Agent_Rainbow_RND:
         self.transition = list()
         
         self.game_steps = 0 #track how many steps taken over entire training
+
+        env = RecordVideo(env,"videos/Rainbow_RND",episode_trigger=lambda x: x % 1000 == 0)  # Record every 1000th episode
         self.env = env
 
         self.is_test = False #controls the test/train mode. Better than just having 2 files
@@ -601,7 +604,7 @@ class Agent_Rainbow_RND:
                         Intrinsic Reward = {ep_reward_intrinsic}, Beta = {self.beta}")
                 print("")
             
-            if epoch % 100 == 0:
+            if epoch % 1 == 0:
                 self.save_models(epoch=epoch)
 
             if epoch % 1000 == 0:
@@ -620,10 +623,6 @@ class Agent_Rainbow_RND:
 
         state = self.env.reset()
         done = False
-
-        #TODO: make sure this works
-        self.model.load_model()
-        self.target_model.load_model()
 
         #1000 steps
         while not done:

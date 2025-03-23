@@ -222,11 +222,10 @@ def test(env,device,args):
 if __name__ == "__main__":
     args = parse_args()
     print(os.getcwd())
-    testing = False
+    testing = True
 
     # Define log file name (per process)
     rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-    video_folder = "" #TODO: make a folder here
 
     print_info()
     testing = args.testing

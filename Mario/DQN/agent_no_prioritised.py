@@ -6,6 +6,7 @@ import time
 from model import MarioNet
 from model_mobile_vit import MarioNet_ViT
 import os
+from gym.wrappers import RecordVideo
 
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
@@ -105,6 +106,8 @@ class Agent:
                  use_vit=False
                  ):
 
+        env = RecordVideo(env,"videos/DQN",name_prefix=f"dqn_episode_{self.episode}"
+                          ,episode_trigger=lambda x: x % 100 == 0)  # Record every 1000th episode
         self.env = env
         self.device = device
 
@@ -117,9 +120,6 @@ class Agent:
 
         #model default value - if we already had a model, then use the epochs we left off  
         self.curr_epoch = 1
-
-        #Combines adaptive learning rates with weight decay regularisation for better generalisation
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
 
         self.nb_actions = nb_actions
 
@@ -143,9 +143,14 @@ class Agent:
         #simple uniform sampling memory        
         self.memory = ReplayBuffer(input_dims,memory_capacity,batch_size)
 
+        #Combines adaptive learning rates with weight decay regularisation for better generalisation
+        self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
+        
         #load models
         if os.path.exists("models/dqn") and load_models_flag==True:
             self.load_models()
+        
+        self.epoch = self.curr_epoch #track the current epoch
         
         self.model.to(self.device)
         self.target_model.to(self.device)
@@ -168,7 +173,7 @@ class Agent:
             #use advantage function to calculate max action
             return self.model(state).argmax().item()
 
-    def decay_epsilon(self,episode=None):
+    def decay_epsilon(self):
         # linear decay : 
         self.epsilon = max(self.epsilon * self.epsilon_decay, self.min_epsilon)
 
@@ -191,6 +196,7 @@ class Agent:
             ep_loss = 0
             loss = 0
             loss_count = 0
+            self.epoch = epoch
 
             while not done:
                 action = self.get_action(state)
@@ -257,7 +263,7 @@ class Agent:
                         Episode loss = {ep_loss}, Average loss = {ep_loss/loss_count}, Epoch = {epoch}, \
                         Time Steps = {self.game_steps}, epsilon = {self.epsilon}")
                 print("")
-            if epoch % 100 == 0:
+            if epoch % 1 == 0:
                 self.save_models(epoch=epoch) #save models every 100th epoch
             
             if epoch % 1000 == 0:
@@ -287,7 +293,6 @@ class Agent:
         state = self.env.reset()
         done = False
         
-        #1000 steps
         while not done:
             time.sleep(0.01) #by default it runs very quickly, so slow down
             action = self.get_action(state,test=True) #dont want epsilon
@@ -340,7 +345,9 @@ class Agent:
             self.model.to(self.device)
             self.target_model.to(self.device)
 
-            print(f"Loaded weights filename: {weights_filename}")            
+            print(f"Loaded weights filename: {weights_filename}, curr_epoch = {self.curr_epoch}, epsilon = {self.epsilon}, \
+                  game steps = {self.game_steps}")
+                        
         except Exception as e:
             print(f"No weights filename: {weights_filename}, using a random initialised model")
             print(f"Error: {e}")
