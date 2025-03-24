@@ -18,9 +18,10 @@ class Agent:
 
         self.log_probs = None
         self.game_steps = 0
-        self.num_completed_epochs = 0#how many games have ended in getting the flag
-        self.total_epochs = 1 #total number of epochs/episodes of game playing that happened
+        self.num_completed_episodes = 0#how many games have ended in getting the flag
+        self.total_episodes = 1 #total number of epochs/episodes of game playing that happened
         self.curr_epoch = 1 #what the current epoch is
+        self.entropy = 0
         self.device = device
         print(f"Device for Agent = {device}")
 
@@ -36,8 +37,9 @@ class Agent:
         entropy = action_probabilities.entropy()
         #get small. derivatives of logs are also simpler to compute anyway
         self.log_probs = log_probs
+        self.entropy = entropy
 
-        return (action.numpy(), log_probs, state_values, entropy)
+        return (action.cpu().numpy(), log_probs, state_values, entropy)
         #return a numpy version of the action as action is a tensor, but openai gym needs numpy arrays.
 
     """
@@ -96,8 +98,8 @@ class Agent:
             'optimizer_state_dict': self.optimizer.state_dict(),
             'epoch': epoch,      # Save the current epoch
             'game_steps': self.game_steps,  # Save the global step
-            'completed_epochs' : self.num_completed_epochs, # num of epochs where
-            'total_epochs': self.total_epochs #total number of completed epochs/episodes
+            'completed_episodes' : self.num_completed_episodes, # num of epochs where
+            'total_episodes': self.total_episodes, #total number of completed epochs/episodes
         }
 
         print("...saving checkpoint...")
@@ -114,8 +116,8 @@ class Agent:
             self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
             self.curr_epoch = checkpoint["epoch"]
             self.game_steps = checkpoint["game_steps"]
-            self.num_completed_epochs = checkpoint["completed_epochs"]  
-            self.total_epochs = checkpoint["total_epochs"]
+            self.num_completed_episodes = checkpoint["completed_episodes"]  
+            self.total_episodes = checkpoint["total_episodes"]
             
             self.actor_critic.to(self.device)
 

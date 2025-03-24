@@ -113,6 +113,7 @@ def train(env,device,args):
     n_steps_per_update = args.n_steps_per_update
 
     lam = args.lam
+    entropy = 0
     ent_coef = args.ent_coef # coefficient for entropy bonus (encourage exploration)
 
     agent = Agent(input_shape=env.envs[0].observation_space.shape,device=device,lr_rate=alpha,
@@ -124,7 +125,9 @@ def train(env,device,args):
     n_epochs = args.n_epochs
 
     game_steps = agent.game_steps
-    
+
+    states = env.reset() #reset once at the start
+
     for epoch in range(agent.curr_epoch,n_epochs+1):
 
         # Reset lists to collect experiences
@@ -133,7 +136,7 @@ def train(env,device,args):
         ep_action_log_probs = torch.zeros(n_steps_per_update, num_envs, device=device)
         masks = torch.zeros(n_steps_per_update, num_envs, device=device)
 
-        states = env.reset()
+        #no need to reset each time as using vectorised environments, just let them keep going
 
         for step in range(n_steps_per_update):
             states = torch.as_tensor(states, dtype=torch.float32,device=device)
@@ -147,27 +150,30 @@ def train(env,device,args):
             ep_value_preds[step] = torch.squeeze(state_value)
             ep_rewards[step] = torch.tensor(rewards, device=device)
             ep_action_log_probs[step] = log_probs
-            masks[step] = torch.tensor([not done for done in dones], device=device)
+            masks[step] = torch.tensor([not done for done in dones])
 
             states = next_states
 
             #log episodic return and info, this does it on vectorised envs 
             for item in info:
                 if "episode" in item.keys():#check if current env completed episode
-                    agent.total_epochs += 1
+                    agent.total_episodes += 1
                     episodic_reward = item["episode"]["r"]
                     episodic_len = item["episode"]["l"]
 
-                    print(f"global_step={game_steps}, episodic_return={episodic_reward}, episodic len={episodic_len}")
+                    print(f"game_step={game_steps}, episodic_return={episodic_reward}, episodic len={episodic_len}")
                     writer.add_scalar("Charts/episodic_return", episodic_reward, game_steps) 
                     writer.add_scalar("Charts/episodic_length", episodic_len, game_steps)
+                    #episode graphs instead of game_steps
+                    writer.add_scalar("Charts/episodic_return_episode", episodic_reward, agent.total_episodes) 
+                    writer.add_scalar("Charts/episodic_length_episode", episodic_len, agent.total_episodes)
 
                     if item["flag_get"] == True:
-                        agent.num_completed_epochs += 1
+                        agent.num_completed_episodes += 1
                         #MOST IMPORTANT - time to complete game. See if we improve in speedrunning when we finish the game
                         writer.add_scalar("Complete/time_complete", item["time"],game_steps)
                         #completion compared to total episodes
-                        writer.add_scalar("Complete/completion_rate",agent.num_completed_epochs/agent.total_epochs,game_steps)
+                        writer.add_scalar("Complete/completion_rate",agent.num_completed_episodes/agent.total_episodes,game_steps)
         
         critic_loss, actor_loss = agent.get_losses(
             ep_rewards,ep_action_log_probs,ep_value_preds,entropy,masks,gamma,lam,ent_coef
@@ -176,15 +182,16 @@ def train(env,device,args):
         loss = agent.update_params(critic_loss,actor_loss)
 
         writer.add_scalar("Charts/learning_rate", agent.optimizer.param_groups[0]["lr"], game_steps)
-        writer.add_scalar("Charts/epochs", epoch, global_step=game_steps)
+        writer.add_scalar("Charts/epochs", epoch, game_steps)
 
+        writer.add_scalar("Charts/entropy", entropy, game_steps)
         #add last loss, useful for tracking quick changes
         writer.add_scalar("losses/loss", loss, game_steps)
 
         if epoch % 10 == 0:
             print("")
             print(f"Loss = {loss}, Epoch = {epoch}, \
-                        Time Steps = {game_steps}")
+                        Time Steps = {game_steps}, entropy = {entropy}")
             print("")
 
         if epoch % 10 == 0:
