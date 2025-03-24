@@ -135,6 +135,7 @@ class Agent:
         self.epsilon_decay = 0.99999975#1- (((epsilon - min_epsilon) / nb_warmup) *2) # linear decay rate, close to the nb_warmup steps count
 
         self.game_steps = 0 #track how many steps taken over entire training
+        self.num_completed_epochs = 0#how many games have ended in getting the flag
 
         self.loss = torch.nn.MSELoss()
 
@@ -193,6 +194,7 @@ class Agent:
         
         episodic_return = 0
         episodic_len = 0
+
         for epoch in range(self.curr_epoch,epochs+1):
             state = self.env.reset() #reset the environment for each iteration
             done = False
@@ -248,16 +250,21 @@ class Agent:
                     self.optimizer.step()
                     self.decay_epsilon() #decay epsilon at each step in environment
 
+                state = next_state #did the training, now move on with next state
+
                 if "episode" in info:
                     episodic_return = info["episode"]["r"]
                     episodic_len = info["episode"]["l"]
                     self.writer.add_scalar("Charts/episodic_return", episodic_return, self.game_steps) 
                     self.writer.add_scalar("Charts/episodic_length", episodic_len, self.game_steps)
-                    # episodic length(number of steps)
-                        
-                state = next_state #did the training, now move on with next state
-                #print(f"Got here now, episode return={ep_return}, time step = {self.game_steps}")
-
+                    
+                    if info["flag_get"] == True:
+                        self.num_completed_epochs += 1
+                        #MOST IMPORTANT - time to complete game. See if we improve in speedrunning when we finish the game
+                        self.writer.add_scalar("Complete/time_complete", info["time"],self.game_steps)
+                        #completion compared to total epochs we have had
+                        self.writer.add_scalar("Complete/completion_rate",self.num_completed_epochs/epoch,self.game_steps)
+             
             #gatherin stats
             if epoch % 10 == 0:
                 print("")
@@ -266,7 +273,7 @@ class Agent:
                         Episode loss = {ep_loss}, Average loss = {ep_loss/loss_count}, Epoch = {epoch}, \
                         Time Steps = {self.game_steps}, epsilon = {self.epsilon}")
                 print("")
-            if epoch % 1 == 0:
+            if epoch % 10 == 0:
                 self.save_models(epoch=epoch) #save models every 100th epoch
             
             if epoch % 1000 == 0:
@@ -326,6 +333,7 @@ class Agent:
             'epsilon': self.epsilon,  # Save the current epsilon value
             'epoch': epoch,      # Save the current epoch
             'game_steps': self.game_steps,  # Save the global step
+            'completed_epochs' : self.num_completed_epochs # num of epochs where
         }
 
         print("...saving checkpoint...")
@@ -344,6 +352,7 @@ class Agent:
             self.curr_epoch = checkpoint["epoch"]
             self.epsilon = checkpoint["epsilon"]
             self.game_steps = checkpoint["game_steps"]
+            self.num_completed_epochs = checkpoint["completed_epochs"]
 
             self.model.to(self.device)
             self.target_model.to(self.device)

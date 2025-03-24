@@ -18,7 +18,9 @@ class Agent:
 
         self.log_probs = None
         self.game_steps = 0
-        self.curr_epoch = 1
+        self.num_completed_epochs = 0#how many games have ended in getting the flag
+        self.total_epochs = 1 #total number of epochs/episodes of game playing that happened
+        self.curr_epoch = 1 #what the current epoch is
         self.device = device
         print(f"Device for Agent = {device}")
 
@@ -94,6 +96,8 @@ class Agent:
             'optimizer_state_dict': self.optimizer.state_dict(),
             'epoch': epoch,      # Save the current epoch
             'game_steps': self.game_steps,  # Save the global step
+            'completed_epochs' : self.num_completed_epochs, # num of epochs where
+            'total_epochs': self.total_epochs #total number of completed epochs/episodes
         }
 
         print("...saving checkpoint...")
@@ -109,8 +113,10 @@ class Agent:
             self.actor_critic.load_state_dict(checkpoint["model_state_dict"])
             self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
             self.curr_epoch = checkpoint["epoch"]
-            self.game_steps = checkpoint["game_steps"]  
-
+            self.game_steps = checkpoint["game_steps"]
+            self.num_completed_epochs = checkpoint["completed_epochs"]  
+            self.total_epochs = checkpoint["total_epochs"]
+            
             self.actor_critic.to(self.device)
 
             print(f"Loaded weights filename: {weights_filename}, curr_epoch = {self.curr_epoch}, \

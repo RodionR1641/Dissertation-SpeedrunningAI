@@ -37,17 +37,18 @@ def parse_args():
     parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
     #testing flag
-    parser.add_argument("--testing", type=lambda x: bool(strtobool(x)), default= True , nargs="?", const=True,
+    parser.add_argument("--testing", type=lambda x: bool(strtobool(x)), default= False , nargs="?", const=True,
         help="set to true if just want to test the agent playing the game")
-    
-    
-
-    parser.add_argument("--agent-type", type=int, default=2,
+    #resume run - if we have a run that hasnt finished with the same experiment,seed and we can resume it
+    parser.add_argument("--resume-run", type=lambda x: bool(strtobool(x)), default= True , nargs="?", const=True,
+        help="set to true if just want to test the agent playing the game")
+    #agent type
+    parser.add_argument("--agent-type", type=int, default=1,
         help="tells which DQN agent to use: 0=dueling double, 1=rainbow, 2=rainbow with RND")
     
+
     parser.add_argument("--num-epochs", type=int, default=200_000,
         help="number of episodes the training goes for")
-    
     # Algorithm specific arguments
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
@@ -116,6 +117,7 @@ if __name__ == "__main__":
     environment = DQN_Mario(use_vit=use_vit,seed=args.seed)
     num_actions = environment.action_num
     testing = args.testing
+    resume_run = args.resume_run
     seed_run()
     agent_type = args.agent_type
 
@@ -182,8 +184,8 @@ if __name__ == "__main__":
         print("error - invalid agent_type")
         exit()
     
-    run_name = f"{args.gym_id}__{exp_name}__{args.seed}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
-    
+    run_name = f"{exp_name}__{args.seed}__{args.gym_id}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    run_id_name = f"{exp_name}__{args.seed}__{args.gym_id}"
     agent.record_video(run_name)
 
     if(testing):
@@ -192,7 +194,7 @@ if __name__ == "__main__":
 
     if args.track:
         run_id = None
-        run_id_file = f"wandb_ids/run_id_{exp_name}.txt"
+        run_id_file = f"wandb_ids/{run_id_name}.txt"
         #if we ended a run, we can resume it in wandb just by getting the same run_id of that experiment as before. 
         #the models etc will also be loaded so as to resume the run
         if os.path.exists(run_id_file):
@@ -203,7 +205,7 @@ if __name__ == "__main__":
                     run_id = last_line
         # Initialize or resume the W&B run
         try:
-            if run_id:
+            if run_id and resume_run:
                 # Resume the existing run
                 run = wandb.init(
                     id=run_id,
@@ -237,19 +239,19 @@ if __name__ == "__main__":
                 with open(run_id_file, "a") as f:
                     f.write(f"{run.id}\n")  # Append the run_id as a new line
 
-            patch()  # Make sure TensorBoard graphs are saved to wandb
             run_id = run.id
+            patch()
+
+            #visualisation toolkit to visualise training - Tensorboard, allows to see the metrics like loss and see hyperparameters
+            writer = SummaryWriter(f"runs/{run_name}")
+            writer.add_text(
+                "hyperparameters",
+                "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+            )
 
         except wandb.Error as e:
             print(f"Failed to initialize/resume W&B run: {e}")
             exit()
-    
-    #visualisation toolkit to visualise training - Tensorboard, allows to see the metrics like loss and see hyperparameters
-    writer = SummaryWriter(f"runs/{run_name}")
-    writer.add_text(
-        "hyperparameters",
-        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
-    )
 
     agent.set_writer(writer)
 
@@ -257,3 +259,16 @@ if __name__ == "__main__":
 
     if args.track:
         wandb.finish()
+        #remove the run_id from the file as its done now
+        if os.path.exists(run_id_file):
+            with open(run_id_file,"r") as f:
+                lines = f.readlines()
+
+            #filter out the run_id lines
+            lines = [line for line in lines if line.strip() != f"{run_id}\n".strip()]
+
+            # Write the remaining lines back to the file
+            with open(run_id_file, "w") as f:
+                f.writelines(lines)
+
+            print(f"Removed run_id: {run_id.strip()}")

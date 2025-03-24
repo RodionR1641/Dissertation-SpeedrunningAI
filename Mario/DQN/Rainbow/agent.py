@@ -345,6 +345,7 @@ class Agent_Rainbow:
         
         self.game_steps = 0 #track how many steps taken over entire training
         self.env = env
+        self.num_completed_epochs = 0#how many games have ended in getting the flag
 
         self.is_test = False #controls the test/train mode. Better than just having 2 files
         
@@ -518,6 +519,7 @@ class Agent_Rainbow:
 
         episodic_return = 0
         episodic_len = 0
+
         for epoch in range(self.curr_epoch,epochs+1):
             state = self.env.reset() #reset the environment for each iteration
             done = False
@@ -552,6 +554,13 @@ class Agent_Rainbow:
                     self.writer.add_scalar("Charts/episodic_return", episodic_return, self.game_steps) 
                     self.writer.add_scalar("Charts/episodic_length", episodic_len, self.game_steps)
 
+                    if info["flag_get"] == True:
+                        self.num_completed_epochs += 1
+                        #MOST IMPORTANT - time to complete game. See if we improve in speedrunning when we finish the game
+                        self.writer.add_scalar("Complete/time_complete", info["time"],self.game_steps)
+                        #completion compared to total episodes
+                        self.writer.add_scalar("Complete/completion_rate",self.num_completed_epochs/epoch,self.game_steps)
+            
             self.writer.add_scalar("Charts/beta",self.beta,self.game_steps)
             self.writer.add_scalar("Charts/epochs",epoch,self.game_steps)
 
@@ -621,6 +630,7 @@ class Agent_Rainbow:
             'beta': self.beta,  # Save the current beta value
             'epoch': epoch,      # Save the current epoch
             'game_steps': self.game_steps,  # Save the global step
+            'completed_epochs' : self.num_completed_epochs # num of epochs where
         }
 
         print("...saving checkpoint...")
@@ -639,6 +649,7 @@ class Agent_Rainbow:
             self.beta = checkpoint["beta"]
             self.curr_epoch = checkpoint["epoch"]
             self.game_steps = checkpoint["game_steps"]
+            self.num_completed_epochs = checkpoint["completed_epochs"]
 
             print(f"Loaded weights filename: {weights_filename}")            
         except Exception as e:

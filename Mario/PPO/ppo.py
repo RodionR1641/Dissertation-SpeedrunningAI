@@ -52,7 +52,7 @@ def test(env, device):
     env.close()
 
 #these models take a while to train, want to save it and reload on start. Save both target and online for exact reproducibility
-def save_models(num_updates,global_step, weights_filename="models/ppo/ppo_latest.pth"):
+def save_models(num_updates,global_step,num_completed_epochs,total_epochs, weights_filename="models/ppo/ppo_latest.pth"):
     #state_dict() -> dictionary of the states/weights in a given model
     # we override nn.Module, so this can be done
 
@@ -62,6 +62,8 @@ def save_models(num_updates,global_step, weights_filename="models/ppo/ppo_latest
         'learning_rate': optimizer.param_groups[0]["lr"],  # Save the learning rate for the first group
         'num_updates': num_updates,      # Save the current epoch
         'global_step': global_step,  # Save the global step
+        'num_completed_epochs': num_completed_epochs,
+        'total_epochs': total_epochs,
     }
 
     print("...saving checkpoint...")
@@ -79,13 +81,15 @@ def load_models(weights_filename="models/ppo/ppo_latest.pth"):
         optimizer.param_groups[0]["lr"] = checkpoint['learning_rate']
         num_updates = checkpoint["num_updates"]
         global_step = checkpoint["global_step"]
+        num_completed_epochs = checkpoint["completed_epochs"]
+        total_epochs = checkpoint["total_epochs"]
 
         ac_model.to(device)
 
         print(f"Loaded weights filename: {weights_filename}, curr_epoch_update = {num_updates}, \
                   game steps = {global_step}, optimizer learning rate = { checkpoint['learning_rate']}")  
 
-        return num_updates, global_step            
+        return num_updates, global_step, num_completed_epochs, total_epochs            
     except Exception as e:
         print(f"No weights filename: {weights_filename}, using a random initialised model")
         print(f"Error: {e}")
@@ -114,7 +118,7 @@ def parse_args():
     parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
     #testing flag
-    parser.add_argument("--testing", type=lambda x: bool(strtobool(x)), default= True , nargs="?", const=True,
+    parser.add_argument("--testing", type=lambda x: bool(strtobool(x)), default= False , nargs="?", const=True,
         help="set to true if just want to test the agent playing the game")
 
 
@@ -223,11 +227,13 @@ if __name__ == "__main__":
     #track number of environment steps
     global_step = 0
     curr_num_updates = 1
+    num_completed_epochs = 0#how many games have ended in getting the flag
+    total_epochs = 1 #total number of epochs/episodes of game playing that happened
 
     #load the model to continue training
     if load_models_flag == True:
         try:
-            curr_num_updates, global_step = load_models()
+            curr_num_updates, global_step, num_completed_epochs, total_epochs = load_models()
         except ModelLoadingError as e:
             pass #no need to do anything here, just keep global_step and curr_updates 0
 
@@ -366,13 +372,19 @@ if __name__ == "__main__":
             #log episodic return and info, this does it on vectorised envs 
             for item in info:
                 if "episode" in item.keys():#check if current env completed episode
+                    total_epochs += 1
                     episodic_reward = item["episode"]["r"]
                     episodic_len = item["episode"]["l"]
 
                     writer.add_scalar("Charts/episodic_return", episodic_reward, global_step) 
                     writer.add_scalar("Charts/episodic_length", episodic_len, global_step)
-                    # episodic length(number of steps)
-                    break
+                    
+                    if item["flag_get"] == True:
+                        num_completed_epochs += 1
+                        #MOST IMPORTANT - time to complete game. See if we improve in speedrunning when we finish the game
+                        writer.add_scalar("Complete/time_complete", item["time"],global_step)
+                        #completion compared to total epochs we have had
+                        writer.add_scalar("Complete/completion_rate",num_completed_epochs/total_epochs,global_step)
             
         # use General Advantage Estimation(GAE) to do advantage estimation
 
@@ -556,11 +568,12 @@ if __name__ == "__main__":
                             ,Episode len = {episodic_len}, Episode loss = {loss_total}, Average loss = {loss_total/loss_count} \
                             ,Epoch = {epoch},Time Steps = {global_step}, Learning Rate ={optimizer.param_groups[0]['lr']}")
             print("")
-        if update % 100 == 0:
-            save_models(num_updates=update,global_step=global_step) 
+        if update % 10 == 0:
+            save_models(num_updates=update,global_step=global_step,num_completed_epochs=num_completed_epochs,total_epochs=total_epochs) 
         
         if update % 1000 == 0:
-            save_models(num_updates=update,global_step=global_step,weights_filename=f"models/ppo/ppo_iter_{update}.pt")
+            save_models(num_updates=update,global_step=global_step,num_completed_epochs=num_completed_epochs,total_epochs=total_epochs
+                        ,weights_filename=f"models/ppo/ppo_iter_{update}.pt")
 
         #debug variable:explained variance - indicate if the value function is a good indicator of the returns
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
@@ -589,6 +602,6 @@ if __name__ == "__main__":
         
         writer.add_scalar("Charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
-    save_models()
+    save_models(num_updates=update,global_step=global_step,num_completed_epochs=num_completed_epochs,total_epochs=total_epochs)
     envs.close()
     writer.close()

@@ -58,7 +58,10 @@ def parse_args():
         help="whether to capture videos of the agent performances (check out `videos` folder)")
     
     #testing flag
-    parser.add_argument("--testing", type=lambda x: bool(strtobool(x)), default= True , nargs="?", const=True,
+    parser.add_argument("--testing", type=lambda x: bool(strtobool(x)), default= False , nargs="?", const=True,
+        help="set to true if just want to test the agent playing the game")
+    #resume run - if we have a run that hasnt finished with the same experiment,seed and we can resume it
+    parser.add_argument("--resume-run", type=lambda x: bool(strtobool(x)), default= True , nargs="?", const=True,
         help="set to true if just want to test the agent playing the game")
 
     
@@ -151,14 +154,20 @@ def train(env,device,args):
             #log episodic return and info, this does it on vectorised envs 
             for item in info:
                 if "episode" in item.keys():#check if current env completed episode
+                    agent.total_epochs += 1
                     episodic_reward = item["episode"]["r"]
                     episodic_len = item["episode"]["l"]
 
                     print(f"global_step={game_steps}, episodic_return={episodic_reward}, episodic len={episodic_len}")
                     writer.add_scalar("Charts/episodic_return", episodic_reward, game_steps) 
                     writer.add_scalar("Charts/episodic_length", episodic_len, game_steps)
-                    # episodic length(number of steps)
-                    break
+
+                    if item["flag_get"] == True:
+                        agent.num_completed_epochs += 1
+                        #MOST IMPORTANT - time to complete game. See if we improve in speedrunning when we finish the game
+                        writer.add_scalar("Complete/time_complete", item["time"],game_steps)
+                        #completion compared to total episodes
+                        writer.add_scalar("Complete/completion_rate",agent.num_completed_epochs/agent.total_epochs,game_steps)
         
         critic_loss, actor_loss = agent.get_losses(
             ep_rewards,ep_action_log_probs,ep_value_preds,entropy,masks,gamma,lam,ent_coef
@@ -232,8 +241,11 @@ if __name__ == "__main__":
 
     print_info()
     testing = args.testing
+    resume_run = args.resume_run
     num_envs = args.num_envs
-    run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    
+    run_name = f"{args.exp_name}__{args.seed}__{args.gym_id}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    run_id_name = f"{args.exp_name}__{args.seed}__{args.gym_id}"
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     if(testing):
@@ -244,7 +256,7 @@ if __name__ == "__main__":
 
     if args.track:
         run_id = None
-        run_id_file = f"wandb_ids/run_id_{args.exp_name}.txt"
+        run_id_file = f"wandb_ids/{run_id_name}.txt"
         #if we ended a run, we can resume it in wandb just by getting the same run_id of that experiment as before. 
         #the models etc will also be loaded so as to resume the run
         if os.path.exists(run_id_file):
@@ -255,7 +267,7 @@ if __name__ == "__main__":
                     run_id = last_line
         # Initialize or resume the W&B run
         try:
-            if run_id:
+            if run_id and resume_run:
                 # Resume the existing run
                 run = wandb.init(
                     id=run_id,
@@ -311,3 +323,19 @@ if __name__ == "__main__":
     )#vectorised environment
 
     train(env=env,device=device,args=args)
+
+    if args.track:
+        wandb.finish()
+        #remove the run_id from the file as its done now
+        if os.path.exists(run_id_file):
+            with open(run_id_file,"r") as f:
+                lines = f.readlines()
+
+            #filter out the run_id lines
+            lines = [line for line in lines if line.strip() != f"{run_id}\n".strip()]
+
+            # Write the remaining lines back to the file
+            with open(run_id_file, "w") as f:
+                f.writelines(lines)
+
+            print(f"Removed run_id: {run_id.strip()}")
