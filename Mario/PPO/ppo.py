@@ -82,6 +82,8 @@ def save_models(num_updates,game_steps,num_completed_episodes,total_episodes, we
     }
 
     print("...saving checkpoint...")
+    if not os.path.exists("models"):
+        os.mkdir("models")
     if not os.path.exists("models/ppo"):
         os.mkdir("models/ppo")
     torch.save(checkpoint,weights_filename)

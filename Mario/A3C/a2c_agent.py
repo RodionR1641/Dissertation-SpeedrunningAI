@@ -109,6 +109,8 @@ class Agent:
         }
 
         print("...saving checkpoint...")
+        if not os.path.exists("models"):
+            os.mkdir("models")
         if not os.path.exists("models/a2c"):
             os.mkdir("models/a2c")
         torch.save(checkpoint,weights_filename)

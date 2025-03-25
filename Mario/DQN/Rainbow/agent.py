@@ -657,6 +657,8 @@ class Agent_Rainbow:
         }
 
         print("...saving checkpoint...")
+        if not os.path.exists("models"):
+            os.mkdir("models")
         if not os.path.exists("models/rainbow"):
             os.mkdir("models/rainbow")
         torch.save(checkpoint,weights_filename)
