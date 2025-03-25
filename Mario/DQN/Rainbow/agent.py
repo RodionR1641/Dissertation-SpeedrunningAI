@@ -125,7 +125,7 @@ class ReplayBuffer():
 
     def can_sample(self):
         #need enough varied data to sample, as we sample random data
-        return self.size >= (self.batch_size * 5)
+        return self.size >= (self.batch_size * 10)
 
 class PrioritisedMemory(ReplayBuffer):
     
@@ -158,7 +158,7 @@ class PrioritisedMemory(ReplayBuffer):
 
         if transition:
             #newly inserted get the max_priority as the TD error is unknown and we want all transitions to have a chance 
-            # of being sampled
+            # of being sampled. Alpha controls the importance of priority sampling
             self.sum_tree[self.tree_ptr] = self.max_priority ** self.alpha
             self.min_tree[self.tree_ptr] = self.max_priority ** self.alpha
             self.tree_ptr = (self.tree_ptr + 1) % self.max_size
@@ -265,7 +265,7 @@ class Agent_Rainbow:
                  batch_size=32,
                  learning_rate=1e-5,
                  gamma=0.99,
-                 sync_network_rate=10_000,
+                 sync_network_rate=1_000,
                  #Categorical DQN parameters
                  v_min=0.0,
                  v_max=200.0,
@@ -553,13 +553,20 @@ class Agent_Rainbow:
                     episodic_len = info["episode"]["l"]
                     self.writer.add_scalar("Charts/episodic_return", episodic_return, self.game_steps) 
                     self.writer.add_scalar("Charts/episodic_length", episodic_len, self.game_steps)
+                    #episodic
+                    episodes = epoch
+                    self.writer.add_scalar("Charts/episodic_return_episodic", episodic_return, episodes) 
+                    self.writer.add_scalar("Charts/episodic_return_episodic", episodic_len, episodes)
 
                     if info["flag_get"] == True:
                         self.num_completed_epochs += 1
                         #MOST IMPORTANT - time to complete game. See if we improve in speedrunning when we finish the game
                         self.writer.add_scalar("Complete/time_complete", info["time"],self.game_steps)
-                        #completion compared to total episodes
+                        self.writer.add_scalar("Complete/time_complete_episode",info["time"],episodes)
+                        
+                        #completion compared to total epochs we have had
                         self.writer.add_scalar("Complete/completion_rate",self.num_completed_epochs/epoch,self.game_steps)
+                        self.writer.add_scalar("Complete/completion_rate_episode",self.num_completed_epochs/epoch,episodes)
             
             self.writer.add_scalar("Charts/beta",self.beta,self.game_steps)
             self.writer.add_scalar("Charts/epochs",epoch,self.game_steps)

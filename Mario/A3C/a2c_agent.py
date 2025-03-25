@@ -48,7 +48,7 @@ class Agent:
 
     def get_losses(self,
                    rewards, #shape of [n_steps_per_update,...]
-                   action_probs, #tensor with log_probs of actions taking at each time step
+                   action_log_probs, #tensor with log_probs of actions taking at each time step
                    value_pred, #tensor with state value predictions
                    entropy,
                    masks, #tensor with masks for each time step in episode
@@ -73,10 +73,16 @@ class Agent:
         critic_loss = advantages.pow(2).mean()
 
         # give a bonus for higher entropy to encourage exploration
+
+        entropy_loss = entropy.mean()
+
         actor_loss = (
-            -(advantages.detach() * action_probs).mean() - ent_coef * entropy.mean() #includes the entropy loss already
+            #advantages detached as dont want to back propagate on them, treated as constants
+            #entropy regularisation at the end
+            #policy gradient in first part - negated as we want gradient ascent as we want to maximise the expected cumulative reward
+            -(advantages.detach() * action_log_probs).mean() - ent_coef * entropy_loss #entropy maximised
         )
-        return (critic_loss, actor_loss)
+        return (critic_loss, actor_loss, entropy_loss)
 
     def update_params(self,actor_loss,critic_loss):
         loss = critic_loss + actor_loss #combine the loss

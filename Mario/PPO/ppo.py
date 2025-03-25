@@ -15,6 +15,7 @@ from model import MarioNet
 import wandb
 from wandb.integration.tensorboard import patch
 import datetime
+import wandb
 
 #exception class to handle loading of models
 class ModelLoadingError(Exception):
@@ -197,6 +198,7 @@ if __name__ == "__main__":
     load_models_flag = True #decide if to load models or not
     args = parse_args()
     run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    run_id_name = f"{args.exp_name}__{args.seed}__{args.gym_id}"
     testing = args.testing
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
@@ -244,7 +246,7 @@ if __name__ == "__main__":
     
     if args.track:
         run_id = None
-        run_id_file = f"wandb_ids/run_id_{args.exp_name}.txt"
+        run_id_file = f"wandb_ids/{run_id_name}.txt"
         #if we ended a run, we can resume it in wandb just by getting the same run_id of that experiment as before. 
         #the models etc will also be loaded so as to resume the run
         if os.path.exists(run_id_file):
@@ -373,22 +375,24 @@ if __name__ == "__main__":
             for item in info:
                 if "episode" in item.keys():#check if current env completed episode
                     total_episodes += 1
+                    episodes = total_episodes
                     episodic_reward = item["episode"]["r"]
                     episodic_len = item["episode"]["l"]
 
                     writer.add_scalar("Charts/episodic_return", episodic_reward, game_steps) 
                     writer.add_scalar("Charts/episodic_length", episodic_len, game_steps)
                     #episodic
-                    writer.add_scalar("Charts/episodic_return", episodic_reward, total_episodes) 
-                    writer.add_scalar("Charts/episodic_length", episodic_len, total_episodes)
+                    writer.add_scalar("Charts/episodic_return_episode", episodic_reward, episodes) 
+                    writer.add_scalar("Charts/episodic_length_episode", episodic_len, episodes)
                     
                     if item["flag_get"] == True:
                         num_completed_episodes += 1
                         #MOST IMPORTANT - time to complete game. See if we improve in speedrunning when we finish the game
                         writer.add_scalar("Complete/time_complete", item["time"],game_steps)
+                        writer.add_scalar("Complete/time_complete_episode",item["time"],episodes)
                         #completion compared to total epochs we have had
                         writer.add_scalar("Complete/completion_rate",num_completed_episodes/total_episodes,game_steps)
-                        writer.add_scalar("Complete/completion_rate_episode",num_completed_episodes/total_episodes,total_episodes)
+                        writer.add_scalar("Complete/completion_rate_episode",num_completed_episodes/total_episodes,episodes)
             
         # use General Advantage Estimation(GAE) to do advantage estimation
 

@@ -266,7 +266,7 @@ class Agent_Rainbow_RND:
                  batch_size=32,
                  learning_rate=1e-5,
                  gamma=0.99,
-                 sync_network_rate=10_000,
+                 sync_network_rate=1_000,
                  #Categorical DQN parameters
                  v_min=0.0,
                  v_max=200.0,
@@ -590,13 +590,20 @@ class Agent_Rainbow_RND:
                     episodic_len = info["episode"]["l"]
                     self.writer.add_scalar("Charts/episodic_return", episodic_return, self.game_steps) 
                     self.writer.add_scalar("Charts/episodic_length", episodic_len, self.game_steps)
+                    #episodic
+                    episodes = epoch
+                    self.writer.add_scalar("Charts/episodic_return_episodic", episodic_return, episodes) 
+                    self.writer.add_scalar("Charts/episodic_return_episodic", episodic_len, episodes)
 
                     if info["flag_get"] == True:
                         self.num_completed_epochs += 1
                         #MOST IMPORTANT - time to complete game. See if we improve in speedrunning when we finish the game
                         self.writer.add_scalar("Complete/time_complete", info["time"],self.game_steps)
-                        #completion compared to total episodes
+                        self.writer.add_scalar("Complete/time_complete_episode",info["time"],episodes)
+                        
+                        #completion compared to total epochs we have had
                         self.writer.add_scalar("Complete/completion_rate",self.num_completed_epochs/epoch,self.game_steps)
+                        self.writer.add_scalar("Complete/completion_rate_episode",self.num_completed_epochs/epoch,episodes)
             
             self.writer.add_scalar("Charts/intrinsic_reward",intrinsic_reward,self.game_steps)
             self.writer.add_scalar("Charts/extrinsic_reward",extrinsic_reward,self.game_steps)

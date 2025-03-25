@@ -158,6 +158,7 @@ def train(env,device,args):
             for item in info:
                 if "episode" in item.keys():#check if current env completed episode
                     agent.total_episodes += 1
+                    episodes = agent.total_episodes
                     episodic_reward = item["episode"]["r"]
                     episodic_len = item["episode"]["l"]
 
@@ -165,17 +166,19 @@ def train(env,device,args):
                     writer.add_scalar("Charts/episodic_return", episodic_reward, game_steps) 
                     writer.add_scalar("Charts/episodic_length", episodic_len, game_steps)
                     #episode graphs instead of game_steps
-                    writer.add_scalar("Charts/episodic_return_episode", episodic_reward, agent.total_episodes) 
-                    writer.add_scalar("Charts/episodic_length_episode", episodic_len, agent.total_episodes)
+                    writer.add_scalar("Charts/episodic_return_episode", episodic_reward, episodes) 
+                    writer.add_scalar("Charts/episodic_length_episode", episodic_len, episodes)
 
                     if item["flag_get"] == True:
                         agent.num_completed_episodes += 1
                         #MOST IMPORTANT - time to complete game. See if we improve in speedrunning when we finish the game
                         writer.add_scalar("Complete/time_complete", item["time"],game_steps)
+                        writer.add_scalar("Complete/time_complete_episode",info["time"],episodes)
                         #completion compared to total episodes
                         writer.add_scalar("Complete/completion_rate",agent.num_completed_episodes/agent.total_episodes,game_steps)
+                        writer.add_scalar("Complete/completion_rate_episode",agent.num_completed_episodes/agent.total_episodes,episodes)
         
-        critic_loss, actor_loss = agent.get_losses(
+        critic_loss, actor_loss,entropy_loss = agent.get_losses(
             ep_rewards,ep_action_log_probs,ep_value_preds,entropy,masks,gamma,lam,ent_coef
         )
 
@@ -184,7 +187,7 @@ def train(env,device,args):
         writer.add_scalar("Charts/learning_rate", agent.optimizer.param_groups[0]["lr"], game_steps)
         writer.add_scalar("Charts/epochs", epoch, game_steps)
 
-        writer.add_scalar("Charts/entropy", entropy, game_steps)
+        writer.add_scalar("Charts/entropy", entropy_loss.item(), game_steps)
         #add last loss, useful for tracking quick changes
         writer.add_scalar("losses/loss", loss, game_steps)
 
