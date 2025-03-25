@@ -306,7 +306,7 @@ class Agent:
                 wandb.log({
                     "game_steps": self.game_steps,
                     "episodes": episodes,
-                    "losses/loss": loss.item(),
+                    "losses/loss": loss,
                     "losses/loss_episodic": ep_loss/loss_count
                 })
 

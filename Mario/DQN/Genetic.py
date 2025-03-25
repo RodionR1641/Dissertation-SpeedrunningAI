@@ -43,7 +43,7 @@ class GeneticHyperparameterSearch:
 
         # Train for a fixed number of episodes and return performance
         average_losses = []
-        for episode in range(5):  # Train for 5 episodes for average(keep it short)
+        for episode in range(1):  # Train for 5 episodes for average(keep it short)
             stats = agent.train(env=self.env, epochs=5000)  # Train for "small" amount of epochs
             average_losses.append(stats["AverageLoss"]) #average loss will be over last 100, but it is representative to "final" trained agent
 

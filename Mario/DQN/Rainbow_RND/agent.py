@@ -547,6 +547,7 @@ class Agent_Rainbow_RND:
             ep_reward_intrinsic = 0
             ep_reward_extrinsic = 0
             ep_loss = 0
+            episodic_len = 0
             loss_count = 0
             loss = 0
             self.epoch = epoch
@@ -615,8 +616,12 @@ class Agent_Rainbow_RND:
                 "episodes": episodes,
                 "Charts/epochs": epoch,
                 "Charts/beta": self.beta,
-                "Charts/intrinsic_reward": intrinsic_reward,
-                "Charts/extrinsic_reward": extrinsic_reward,
+                #total extrinsic and intrinsic rewards for the episode
+                "Charts/intrinsic_reward": ep_reward_intrinsic,
+                "Charts/extrinsic_reward": ep_reward_extrinsic,
+                #average extrinsic and intrinsic rewards for the episode steps
+                "Charts/intrinsic_reward": ep_reward_intrinsic/episodic_len,
+                "Charts/extrinsic_reward": ep_reward_extrinsic/episodic_len,
 
                 "Charts/SPS": int(self.game_steps / (time.time() - start_time))
             })
@@ -626,7 +631,7 @@ class Agent_Rainbow_RND:
                 wandb.log({
                     "game_steps": self.game_steps,
                     "episodes": episodes,
-                    "losses/loss": loss.item(),
+                    "losses/loss": loss,
                     "losses/loss_episodic": ep_loss/loss_count
                 })
 

@@ -2,7 +2,6 @@ import argparse
 import numpy as np
 from a2c_agent import Agent
 from distutils.util import strtobool
-from torch.utils.tensorboard import SummaryWriter
 from gym.wrappers import RecordVideo
 import numpy as np
 import os
@@ -13,7 +12,6 @@ from gym.vector import SyncVectorEnv
 from mario import Mario
 import time
 import wandb
-from wandb.integration.tensorboard import patch
 
 load_models_flag = True 
 
