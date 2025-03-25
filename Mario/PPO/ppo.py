@@ -8,12 +8,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.tensorboard import SummaryWriter
 from gym.wrappers import RecordVideo
 from mario import Mario
 from model import MarioNet
 import wandb
-from wandb.integration.tensorboard import patch
 import datetime
 import wandb
 

@@ -9,11 +9,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.tensorboard import SummaryWriter
 from gym.wrappers import RecordVideo
 from mario import Mario
 from model_lstm import MarioNet
-from wandb.integration.tensorboard import patch
 
 #exception class to handle loading of models
 class ModelLoadingError(Exception):
