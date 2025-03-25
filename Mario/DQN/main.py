@@ -6,13 +6,10 @@ from Rainbow_RND.agent import Agent_Rainbow_RND
 from mario import DQN_Mario
 import numpy as np
 import random
-from torch.utils.tensorboard import SummaryWriter
 from distutils.util import strtobool
 import argparse
 import datetime
 import wandb
-from wandb.integration.tensorboard import patch
-import gymnasium as gym
 
 
 def parse_args():
@@ -240,20 +237,18 @@ if __name__ == "__main__":
                     f.write(f"{run.id}\n")  # Append the run_id as a new line
 
             run_id = run.id
-            patch()
+            wandb.define_metric("game_steps")
+            wandb.define_metric("episodes")
 
-            #visualisation toolkit to visualise training - Tensorboard, allows to see the metrics like loss and see hyperparameters
-            writer = SummaryWriter(f"runs/{run_name}")
-            writer.add_text(
-                "hyperparameters",
-                "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
-            )
+            # Define which metrics use which step
+            wandb.define_metric("Charts/*", step_metric="game_steps")
+            wandb.define_metric("Charts/*", step_metric="episodes")
+            wandb.define_metric("losses/*", step_metric="game_steps")
+            wandb.define_metric("losses/*", step_metric="episodes")
 
         except wandb.Error as e:
             print(f"Failed to initialize/resume W&B run: {e}")
             exit()
-
-    agent.set_writer(writer)
 
     agent.train(args.num_epochs) #pass the Mario environment for agent to train on
 

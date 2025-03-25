@@ -91,7 +91,7 @@ class Agent:
         loss.backward()
         self.optimizer.step()
 
-        return loss.item()
+        return loss.item(), critic_loss.item(), actor_loss.item()
     
 
     #these models take a while to train, want to save it and reload on start. Save both target and online for exact reproducibility

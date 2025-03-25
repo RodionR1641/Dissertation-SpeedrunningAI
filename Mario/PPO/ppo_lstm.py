@@ -298,19 +298,23 @@ if __name__ == "__main__":
                 with open(run_id_file, "a") as f:
                     f.write(f"{run.id}\n")  # Append the run_id as a new line
 
-            patch()  # Make sure TensorBoard graphs are saved to wandb
             run_id = run.id
+
+            wandb.define_metric("game_steps")
+            wandb.define_metric("episodes")
+
+            # Define which metrics use which step
+            wandb.define_metric("Charts/*", step_metric="game_steps")
+            wandb.define_metric("Charts/*", step_metric="episodes")
+            wandb.define_metric("losses/*", step_metric="game_steps")
+            wandb.define_metric("losses/*", step_metric="episodes")
+            wandb.define_metric("losses_avg/*", step_metric="game_steps")
+            wandb.define_metric("losses_avg/*", step_metric="episodes")
 
         except wandb.Error as e:
             print(f"Failed to initialize/resume W&B run: {e}")
             exit()
 
-    #visualisation toolkit to visualise training
-    writer = SummaryWriter(f"runs/{run_name}")
-    writer.add_text(
-        "hyperparameters",
-        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
-    )
                 
     # Storage setup - shape is to match num_steps * num_envs size
     obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape).to(device)
@@ -336,6 +340,7 @@ if __name__ == "__main__":
     #each update is one iteration of the training loop
     episodic_reward = 0
     episodic_len = 0
+    episodes = total_episodes
     for update in range(curr_num_updates,num_updates+1):
 
         loss_total = 0
@@ -379,20 +384,24 @@ if __name__ == "__main__":
                     episodic_reward = item["episode"]["r"]
                     episodic_len = item["episode"]["l"]
 
-                    writer.add_scalar("Charts/episodic_return", episodic_reward, game_steps) 
-                    writer.add_scalar("Charts/episodic_length", episodic_len, game_steps)
-                    #episodic
-                    writer.add_scalar("Charts/episodic_return_episode", episodic_reward, episodes) 
-                    writer.add_scalar("Charts/episodic_length_episode", episodic_len, episodes)
-                    
+                    wandb.log({
+                        "game_steps": game_steps,
+                        "episodes": episodes,
+                        # Log by game_steps (fine-grained steps)
+                        "Charts/episodic_return": episodic_reward,
+                        "Charts/episodic_length": episodic_len,
+                    })  # Default x-axis is game_steps
+
                     if item["flag_get"] == True:
                         num_completed_episodes += 1
                         #MOST IMPORTANT - time to complete game. See if we improve in speedrunning when we finish the game
-                        writer.add_scalar("Complete/time_complete", item["time"],game_steps)
-                        writer.add_scalar("Complete/time_complete_episode",item["time"],episodes)
-                        #completion compared to total epochs we have had
-                        writer.add_scalar("Complete/completion_rate",num_completed_episodes/total_episodes,game_steps)
-                        writer.add_scalar("Complete/completion_rate_episode",num_completed_episodes/total_episodes,episodes)
+                        # Log completion metrics (by game_steps)
+                        wandb.log({
+                            "game_steps": game_steps,  # Tracks the global step counter
+                            "episodes": episodes,
+                            "Charts/time_complete": item["time"],
+                            "Charts/completion_rate": num_completed_episodes / total_episodes,
+                        })
             
         # use General Advantage Estimation(GAE) to do advantage estimation
 
@@ -549,28 +558,32 @@ if __name__ == "__main__":
         var_y = np.var(y_true)
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
-        #measure stats
-        writer.add_scalar("Charts/learning_rate", optimizer.param_groups[0]["lr"], game_steps)
-        writer.add_scalar("Charts/epochs", update,game_steps)
-        
-        #add average loss, more representitive
-        writer.add_scalar("losses/loss_episodic", loss_total/loss_count, game_steps)
-        writer.add_scalar("losses/value_loss_episodic", v_loss_total/loss_count, game_steps)
-        writer.add_scalar("losses/policy_loss_episodic", pg_loss_total/loss_count, game_steps)
-        writer.add_scalar("losses/entropy_episodic", entropy_loss_total/loss_count, game_steps)
+        wandb.log({
+            # Learning rate and epoch tracking
+            "game_steps": game_steps,
+            "episodes": episodes,
+            "Charts/learning_rate": optimizer.param_groups[0]["lr"],
+            "Charts/epochs": update,
+            
+            # Average losses (more representative)
+            "losses_avg/loss": loss_total/loss_count,
+            "losses_avg/value_loss": v_loss_total/loss_count,
+            "losses_avg/policy_loss": pg_loss_total/loss_count,
+            "losses_avg/entropy": entropy_loss_total/loss_count,
+            
+            # Instantaneous losses (for tracking quick changes)
+            "losses/loss": loss.item(),
+            "losses/value_loss": v_loss.item(),
+            "losses/policy_loss": pg_loss.item(),
+            "losses/entropy": entropy_loss.item(),
+            "losses/old_approx_kl": old_approx_kl.item(),
+            "losses/approx_kl": approx_kl.item(),
+            "losses/clipfrac": np.mean(clipfracs),
+            "losses/explained_variance": explained_var,
 
-        #add last loss, useful for tracking quick changes
-        writer.add_scalar("losses/loss", loss.item(), game_steps)
-        writer.add_scalar("losses/value_loss", v_loss.item(), game_steps)
-        writer.add_scalar("losses/policy_loss", pg_loss.item(), game_steps)
-        writer.add_scalar("losses/entropy", entropy_loss.item(), game_steps)
-        writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), game_steps)
-        writer.add_scalar("losses/approx_kl", approx_kl.item(), game_steps)
-        writer.add_scalar("losses/clipfrac", np.mean(clipfracs), game_steps)
-        writer.add_scalar("losses/explained_variance", explained_var, game_steps)
-        
-        writer.add_scalar("Charts/SPS", int(game_steps / (time.time() - start_time)), game_steps)
+            "Charts/SPS": int(game_steps / (time.time() - start_time))
+        })
 
     save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,total_episodes=total_episodes)
     envs.close()
-    writer.close()
+    wandb.finish()

@@ -7,6 +7,7 @@ from model import MarioNet
 from model_mobile_vit import MarioNet_ViT
 import os
 from gym.wrappers import RecordVideo
+import wandb
 
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
@@ -185,15 +186,13 @@ class Agent:
         if self.game_steps % self.sync_network_rate == 0 and self.game_steps > 0:
             self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
 
-    #set the tensorboard writer
-    def set_writer(self,writer):
-        self.writer = writer
     
     #epochs = how many iterations to train for
     def train(self, epochs):
         
         episodic_return = 0
         episodic_len = 0
+        start_time = time.time()
 
         for epoch in range(self.curr_epoch,epochs+1):
             state = self.env.reset() #reset the environment for each iteration
@@ -202,6 +201,7 @@ class Agent:
             loss = 0
             loss_count = 0
             self.epoch = epoch
+            episodes = epoch
 
             while not done:
                 action = self.get_action(state)
@@ -253,24 +253,28 @@ class Agent:
                 state = next_state #did the training, now move on with next state
 
                 if "episode" in info:
-                    episodic_return = info["episode"]["r"]
+                    episodic_reward = info["episode"]["r"]
                     episodic_len = info["episode"]["l"]
-                    self.writer.add_scalar("Charts/episodic_return", episodic_return, self.game_steps) 
-                    self.writer.add_scalar("Charts/episodic_length", episodic_len, self.game_steps)
-                    #episodic
-                    episodes = epoch
-                    self.writer.add_scalar("Charts/episodic_return_episodic", episodic_return, episodes) 
-                    self.writer.add_scalar("Charts/episodic_return_episodic", episodic_len, episodes)
+
+                    wandb.log({
+                        "game_steps": self.game_steps,
+                        "episodes": episodes,
+                        # Log by game_steps (fine-grained steps)
+                        "Charts/episodic_return": episodic_reward,
+                        "Charts/episodic_length": episodic_len,
+                    })  # Default x-axis is game_steps
 
                     if info["flag_get"] == True:
-                        self.num_completed_epochs += 1
+                        num_completed_episodes += 1
                         #MOST IMPORTANT - time to complete game. See if we improve in speedrunning when we finish the game
-                        self.writer.add_scalar("Complete/time_complete", info["time"],self.game_steps)
-                        self.writer.add_scalar("Complete/time_complete_episode",info["time"],episodes)
-                        
-                        #completion compared to total epochs we have had
-                        self.writer.add_scalar("Complete/completion_rate",self.num_completed_epochs/epoch,self.game_steps)
-                        self.writer.add_scalar("Complete/completion_rate_episode",self.num_completed_epochs/epoch,episodes)
+                        # Log completion metrics (by game_steps)
+                        wandb.log({
+                            "game_steps": self.game_steps,  # Tracks the global step counter
+                            "episodes": episodes,
+                            "Charts/time_complete": info["time"],
+                            "Charts/completion_rate": num_completed_episodes / episodes,
+                        })
+                
              
             #gatherin stats
             if epoch % 10 == 0:
@@ -286,21 +290,30 @@ class Agent:
             if epoch % 1000 == 0:
                 self.save_models(epoch=epoch,weights_filename=f"models/dqn/dqn_iter_{epoch}.pth") #saving the models, may see where the good performance was and then it might tank -> can copy
                 #this in as the main model. Then can start retraining from this point if needed
+        
 
-            self.writer.add_scalar("Charts/epochs",epoch,self.game_steps)
-            self.writer.add_scalar("Charts/epsilon",self.epsilon,self.game_steps)
+            wandb.log({
+                "game_steps": self.game_steps,
+                "episodes": episodes,
+                "Charts/epochs": epoch,
+                "Charts/epsilon": self.epsilon,
+
+                "Charts/SPS": int(self.game_steps / (time.time() - start_time))
+            })
 
             if loss > 0 or loss_count > 0:
                 #average loss - more representitive
-            
-                self.writer.add_scalar("losses/loss_episodic",ep_loss/loss_count,self.game_steps)
+                wandb.log({
+                    "game_steps": self.game_steps,
+                    "episodes": episodes,
+                    "losses/loss": loss.item(),
+                    "losses/loss_episodic": ep_loss/loss_count
+                })
 
-                #last loss - up to date changes shown
-                self.writer.add_scalar("losses/loss",loss.item(),self.game_steps)
 
         self.save_models(epoch=epoch)
         self.env.close()
-        self.writer.close()
+        wandb.finish()
 
     #run something on the machine, and see how we perform
     #models already loaded when this is run

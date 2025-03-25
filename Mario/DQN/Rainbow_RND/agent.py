@@ -10,7 +10,7 @@ from collections import deque
 from segment_tree import MinSegmentTree, SumSegmentTree
 from torch.nn.utils import clip_grad_norm_
 from gym.wrappers import RecordVideo
-
+import wandb    
 
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
@@ -539,6 +539,7 @@ class Agent_Rainbow_RND:
         #kept outside outer loop to not lose the data
         episodic_return = 0 #note, this is only the extrinsic reward of the environment
         episodic_len = 0
+        start_time = time.time()
 
         for epoch in range(self.curr_epoch,epochs+1):
             state = self.env.reset() #reset the environment for each iteration
@@ -549,6 +550,7 @@ class Agent_Rainbow_RND:
             loss_count = 0
             loss = 0
             self.epoch = epoch
+            episodes = epoch
 
             while not done:
                 action = self.get_action(state) #this will store the state and action in transition
@@ -586,35 +588,47 @@ class Agent_Rainbow_RND:
                 state = next_state #did the training, now move on with next state
 
                 if "episode" in info:
-                    episodic_return = info["episode"]["r"]
+                    episodic_reward = info["episode"]["r"]
                     episodic_len = info["episode"]["l"]
-                    self.writer.add_scalar("Charts/episodic_return", episodic_return, self.game_steps) 
-                    self.writer.add_scalar("Charts/episodic_length", episodic_len, self.game_steps)
-                    #episodic
-                    episodes = epoch
-                    self.writer.add_scalar("Charts/episodic_return_episodic", episodic_return, episodes) 
-                    self.writer.add_scalar("Charts/episodic_return_episodic", episodic_len, episodes)
+
+                    wandb.log({
+                        "game_steps": self.game_steps,
+                        "episodes": episodes,
+                        # Log by game_steps (fine-grained steps)
+                        "Charts/episodic_return": episodic_reward,
+                        "Charts/episodic_length": episodic_len,
+                    })  # Default x-axis is game_steps
 
                     if info["flag_get"] == True:
-                        self.num_completed_epochs += 1
+                        num_completed_episodes += 1
                         #MOST IMPORTANT - time to complete game. See if we improve in speedrunning when we finish the game
-                        self.writer.add_scalar("Complete/time_complete", info["time"],self.game_steps)
-                        self.writer.add_scalar("Complete/time_complete_episode",info["time"],episodes)
-                        
-                        #completion compared to total epochs we have had
-                        self.writer.add_scalar("Complete/completion_rate",self.num_completed_epochs/epoch,self.game_steps)
-                        self.writer.add_scalar("Complete/completion_rate_episode",self.num_completed_epochs/epoch,episodes)
-            
-            self.writer.add_scalar("Charts/intrinsic_reward",intrinsic_reward,self.game_steps)
-            self.writer.add_scalar("Charts/extrinsic_reward",extrinsic_reward,self.game_steps)
-            self.writer.add_scalar("Charts/beta",self.beta,self.game_steps)
-            self.writer.add_scalar("Charts/epochs",epoch,self.game_steps)
+                        # Log completion metrics (by game_steps)
+                        wandb.log({
+                            "game_steps": self.game_steps,  # Tracks the global step counter
+                            "episodes": episodes,
+                            "Charts/time_complete": info["time"],
+                            "Charts/completion_rate": num_completed_episodes / episodes,
+                        })
+
+            wandb.log({
+                "game_steps": self.game_steps,
+                "episodes": episodes,
+                "Charts/epochs": epoch,
+                "Charts/beta": self.beta,
+                "Charts/intrinsic_reward": intrinsic_reward,
+                "Charts/extrinsic_reward": extrinsic_reward,
+
+                "Charts/SPS": int(self.game_steps / (time.time() - start_time))
+            })
 
             if loss > 0 or loss_count > 0:
                 #average loss - more representitive
-                self.writer.add_scalar("losses/loss_episodic",ep_loss/loss_count,self.game_steps)
-                #last loss - up to date changes shown
-                self.writer.add_scalar("losses/loss",loss,self.game_steps)
+                wandb.log({
+                    "game_steps": self.game_steps,
+                    "episodes": episodes,
+                    "losses/loss": loss.item(),
+                    "losses/loss_episodic": ep_loss/loss_count
+                })
 
             #gatherin stats
             if epoch % 10 == 0:

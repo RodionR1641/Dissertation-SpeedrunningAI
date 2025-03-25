@@ -128,6 +128,9 @@ def train(env,device,args):
 
     states = env.reset() #reset once at the start
 
+    start_time = time.time()
+    episodes = agent.total_episodes
+
     for epoch in range(agent.curr_epoch,n_epochs+1):
 
         # Reset lists to collect experiences
@@ -162,34 +165,47 @@ def train(env,device,args):
                     episodic_reward = item["episode"]["r"]
                     episodic_len = item["episode"]["l"]
 
-                    print(f"game_step={game_steps}, episodic_return={episodic_reward}, episodic len={episodic_len}")
-                    writer.add_scalar("Charts/episodic_return", episodic_reward, game_steps) 
-                    writer.add_scalar("Charts/episodic_length", episodic_len, game_steps)
-                    #episode graphs instead of game_steps
-                    writer.add_scalar("Charts/episodic_return_episode", episodic_reward, episodes) 
-                    writer.add_scalar("Charts/episodic_length_episode", episodic_len, episodes)
+                    #print(f"game_step={game_steps}, episodic_return={episodic_reward}, episodic len={episodic_len}")
+                    wandb.log({
+                        "game_steps": game_steps,
+                        "episodes": episodes,
+                        # Log by game_steps (fine-grained steps)
+                        "Charts/episodic_return": episodic_reward,
+                        "Charts/episodic_length": episodic_len,
+                    })  # Default x-axis is game_steps
 
                     if item["flag_get"] == True:
-                        agent.num_completed_episodes += 1
+                        num_completed_episodes += 1
                         #MOST IMPORTANT - time to complete game. See if we improve in speedrunning when we finish the game
-                        writer.add_scalar("Complete/time_complete", item["time"],game_steps)
-                        writer.add_scalar("Complete/time_complete_episode",info["time"],episodes)
-                        #completion compared to total episodes
-                        writer.add_scalar("Complete/completion_rate",agent.num_completed_episodes/agent.total_episodes,game_steps)
-                        writer.add_scalar("Complete/completion_rate_episode",agent.num_completed_episodes/agent.total_episodes,episodes)
+                        # Log completion metrics (by game_steps)
+                        wandb.log({
+                            "game_steps": game_steps,  # Tracks the global step counter
+                            "episodes": episodes,
+                            "Charts/time_complete": item["time"],
+                            "Charts/completion_rate": num_completed_episodes / agent.total_episodes,
+                        })
         
         critic_loss, actor_loss,entropy_loss = agent.get_losses(
             ep_rewards,ep_action_log_probs,ep_value_preds,entropy,masks,gamma,lam,ent_coef
         )
 
-        loss = agent.update_params(critic_loss,actor_loss)
+        loss,actor_loss,value_loss = agent.update_params(critic_loss,actor_loss)
 
-        writer.add_scalar("Charts/learning_rate", agent.optimizer.param_groups[0]["lr"], game_steps)
-        writer.add_scalar("Charts/epochs", epoch, game_steps)
+        wandb.log({
+            # Learning rate and epoch tracking
+            "game_steps": game_steps,
+            "episodes": episodes,
+            "Charts/learning_rate": agent.optimizer.param_groups[0]["lr"],
+            "Charts/epochs": epoch,
+            
+            # Instantaneous losses (for tracking quick changes)
+            "losses/loss": loss,
+            "losses/value_loss": value_loss,
+            "losses/policy_loss": actor_loss,
+            "losses/entropy": entropy_loss.item(),
 
-        writer.add_scalar("Charts/entropy", entropy_loss.item(), game_steps)
-        #add last loss, useful for tracking quick changes
-        writer.add_scalar("losses/loss", loss, game_steps)
+            "Charts/SPS": int(game_steps / (time.time() - start_time))
+        })
 
         if epoch % 10 == 0:
             print("")
@@ -205,7 +221,7 @@ def train(env,device,args):
     
     agent.save_models(epoch)
     env.close()
-    writer.close()
+    wandb.finish()
 
 
 def test(env,device,args):
@@ -312,20 +328,20 @@ if __name__ == "__main__":
                 with open(run_id_file, "a") as f:
                     f.write(f"{run.id}\n")  # Append the run_id as a new line
 
-            patch()  # Make sure TensorBoard graphs are saved to wandb
+            wandb.define_metric("game_steps")
+            wandb.define_metric("episodes")
+
+            # Define which metrics use which step
+            wandb.define_metric("Charts/*", step_metric="game_steps")
+            wandb.define_metric("Charts/*", step_metric="episodes")
+            wandb.define_metric("losses/*", step_metric="game_steps")
+            wandb.define_metric("losses/*", step_metric="episodes")
             run_id = run.id
 
         except wandb.Error as e:
             print(f"Failed to initialize/resume W&B run: {e}")
             exit()
         
-    #visualisation toolkit to visualise training - Tensorboard, allows to see the metrics like loss and see hyperparameters
-    writer = SummaryWriter(f"runs/{run_name}")
-    writer.add_text(
-        "hyperparameters",
-        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
-    )
-
     seed_run()
 
     env = SyncVectorEnv(
