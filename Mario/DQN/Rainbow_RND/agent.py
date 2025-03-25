@@ -642,7 +642,8 @@ class Agent_Rainbow_RND:
                     print(f"Episode return = {episodic_return}, Episode len = {episodic_len},  \
                         Episode loss = {ep_loss}, Average loss = {ep_loss/loss_count}, Epoch = {epoch}, \
                         Time Steps = {self.game_steps}, Extrinsic Reward = {ep_reward_extrinsic}, \
-                        Intrinsic Reward = {ep_reward_intrinsic}, Beta = {self.beta}")
+                        Intrinsic Reward = {ep_reward_intrinsic}, Beta = {self.beta}, \
+                        SPS = {int(self.game_steps / (time.time() - start_time))}")
                 print("")
             
             if epoch % 10 == 0:

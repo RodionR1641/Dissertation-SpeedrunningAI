@@ -19,6 +19,22 @@ import wandb
 class ModelLoadingError(Exception):
     pass
 
+def print_info():
+    print(f"Process started training on GPUs")
+
+    if torch.cuda.is_available():
+        try:
+            print(torch.cuda.current_device())
+            print("GPU Name: " + torch.cuda.get_device_name(0))
+            print("PyTorch Version: " + torch.__version__)
+            print("CUDA Available: " + str(torch.cuda.is_available()))
+            print("CUDA Version: " + str(torch.version.cuda))
+            print("Number of GPUs: " + str(torch.cuda.device_count()))
+        except RuntimeError as e:
+            print(f"{e}")
+    else:
+        print("cuda not available")
+
 def test(env, device):
     
     # Reset the environment
@@ -201,6 +217,7 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
     print("device PPO: ",device)
+    print_info()
 
     #seeding
     seed_run()

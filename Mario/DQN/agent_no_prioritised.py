@@ -282,7 +282,8 @@ class Agent:
                 if loss_count > 0:
                     print(f"Episode return = {episodic_return}, Episode len = {episodic_len},  \
                         Episode loss = {ep_loss}, Average loss = {ep_loss/loss_count}, Epoch = {epoch}, \
-                        Time Steps = {self.game_steps}, epsilon = {self.epsilon}")
+                        Time Steps = {self.game_steps}, epsilon = {self.epsilon}, \
+                        SPS = {int(self.game_steps / (time.time() - start_time))}")
                 print("")
             if epoch % 10 == 0:
                 self.save_models(epoch=epoch) #save models every 100th epoch

@@ -208,7 +208,8 @@ def train(env,device,args):
         if epoch % 10 == 0:
             print("")
             print(f"Loss = {loss}, Epoch = {epoch}, \
-                        Time Steps = {game_steps}, entropy = {entropy}")
+                        Time Steps = {game_steps}, entropy = {entropy}, \
+                        SPS = {int(game_steps / (time.time() - start_time))}")
             print("")
 
         if epoch % 10 == 0:
