@@ -233,9 +233,15 @@ if __name__ == "__main__":
     # terminate or truncate
     # so at end of j-th rollout phase, next_obs can be used to estimate the value of the final state during learning phase and
     # the beginning of the j+1th rollout phase, next_obs becomes the initial observation in data
+    """
+    envs = gym.vector.AsyncVectorEnv(
+        [make_env(args.gym_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
+    )"""
+    
     envs = gym.vector.SyncVectorEnv(
         [make_env(args.gym_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
     )#vectorised environment
+    
     assert isinstance(envs.single_action_space, gym.spaces.Discrete) #only for discrete actions here
 
     ac_model = MarioNet(envs,input_shape=envs.envs[0].observation_space.shape,device=device) #actor critic model.
@@ -389,7 +395,7 @@ if __name__ == "__main__":
             actions[step] = action
             logprobs[step] = logprob
             
-            next_obs, reward, done, info = envs.step(action.cpu().numpy()) #action on cpu, converted to numpy as env expects it to be
+            next_obs, reward, done, info = envs.step(action) #action on cpu, converted to numpy as env expects it to be
             #store rewards and update variables, make sure tensors
             rewards[step] = torch.tensor(reward).to(device).view(-1)# to gpu
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(done).to(device)   #reassign variables
