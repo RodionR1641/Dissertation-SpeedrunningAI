@@ -21,7 +21,7 @@ def parse_args():
         help="seed of the experiment")
     parser.add_argument("--torch-deterministic", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True, #reproduce experiments
         help="if toggled, `torch.backends.cudnn.deterministic=False`")
-    parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, cuda will be enabled by default")
     parser.add_argument("--wandb-project-name", type=str, default="RL_Mario",
         help="the wandb's project name")
@@ -107,7 +107,7 @@ if __name__ == "__main__":
     print(os.getcwd())
 
     os.environ['KMP_DUPLICATE_LIB_OK'] = "TRUE"
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     #parser args setup and seed
     use_vit = args.use_vit

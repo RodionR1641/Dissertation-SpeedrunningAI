@@ -43,7 +43,7 @@ def parse_args():
         help="seed of the experiment")
     parser.add_argument("--torch-deterministic", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True, #reproduce experiments
         help="if toggled, `torch.backends.cudnn.deterministic=False`")
-    parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, cuda will be enabled by default")
     
     parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
@@ -270,7 +270,7 @@ if __name__ == "__main__":
     
     run_name = f"{args.exp_name}__{args.seed}__{args.gym_id}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
     run_id_name = f"{args.exp_name}__{args.seed}__{args.gym_id}"
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     if(testing):
         env = Mario(args.gym_id,args.seed)
