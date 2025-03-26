@@ -67,7 +67,7 @@ def test(env, device):
     env.close()
 
 #these models take a while to train, want to save it and reload on start. Save both target and online for exact reproducibility
-def save_models(num_updates,game_steps,num_completed_episodes,total_episodes,start_time,weights_filename="models/ppo/ppo_latest.pth"):
+def save_models(num_updates,game_steps,num_completed_episodes,total_episodes,weights_filename="models/ppo/ppo_latest.pth"):
     #state_dict() -> dictionary of the states/weights in a given model
     # we override nn.Module, so this can be done
 
@@ -78,8 +78,7 @@ def save_models(num_updates,game_steps,num_completed_episodes,total_episodes,sta
         'num_updates': num_updates,      # Save the current epoch
         'game_steps': game_steps,  # Save the game step
         'num_completed_episodes': num_completed_episodes,
-        'total_episodes': total_episodes,
-        'start_time': start_time,
+        'total_episodes': total_episodes
     }
 
     print("...saving checkpoint...")
@@ -99,16 +98,15 @@ def load_models(weights_filename="models/ppo/ppo_latest.pth"):
         game_steps = checkpoint["game_steps"]
         num_completed_episodes = checkpoint["num_completed_episodes"]
         total_episodes = checkpoint["total_episodes"]
-        start_time_prev = checkpoint["start_time"]
 
         ac_model.to(device)
 
         print(f"Loaded weights filename: {weights_filename}, curr_epoch_update = {num_updates}, \
                   game steps = {game_steps}, optimizer learning rate = { checkpoint['learning_rate']}")  
 
-        return num_updates, game_steps, num_completed_episodes, total_episodes, start_time_prev        
+        return num_updates, game_steps, num_completed_episodes, total_episodes        
     except Exception as e:
-        print(f"No weights filename: {weights_filename}, using a random initialised model")
+        print(f"Didnt load filename(either due to error or it doesnt exist): {weights_filename}, using a random initialised model")
         print(f"Error: {e}")
         raise ModelLoadingError(f"Failed to load models from {weights_filename}") from e
 
@@ -254,12 +252,11 @@ if __name__ == "__main__":
     curr_num_updates = 1
     num_completed_episodes = 0#how many games have ended in getting the flag
     total_episodes = 1 #total number of epochs/episodes of game playing that happened
-    start_time_prev = None
 
     #load the model to continue training
     if load_models_flag == True:
         try:
-            curr_num_updates, game_steps, num_completed_episodes, total_episodes,start_time_prev = load_models()
+            curr_num_updates, game_steps, num_completed_episodes, total_episodes = load_models()
         except ModelLoadingError as e:
             pass #no need to do anything here, just keep game_steps and curr_updates 0
 
@@ -343,10 +340,6 @@ if __name__ == "__main__":
     dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
     values = torch.zeros((args.num_steps, args.num_envs)).to(device)
 
-    if start_time_prev:
-        start_time = start_time_prev
-    else:
-        start_time = time.time() #helps to calculate sps later
 
     next_obs = torch.Tensor(envs.reset()).to(device) #store initial and subsequent observations
     next_done = torch.zeros(args.num_envs).to(device)
@@ -367,6 +360,12 @@ if __name__ == "__main__":
     episodic_reward = 0
     episodic_len = 0
     episodes = total_episodes
+
+    sps = 0
+    window_sec = 10 # number of seconds in which Steps Per Second(SPS) is calculated
+    step_count_window = 0# number of time steps seen in the window time
+    last_time = time.time()
+    
     for update in range(curr_num_updates,num_updates+1):
         loss_total = 0
         v_loss_total = 0
@@ -387,6 +386,15 @@ if __name__ == "__main__":
         # and store collected data for training
         for step in range(0,args.num_steps):
             game_steps += 1 * args.num_envs # doing steps for all the envs, so add that many steps
+
+            #track how many steps taken in given time window
+            step_count_window += 1 * args.num_envs
+            current_time = time.time()
+            if current_time - last_time >= window_sec:
+                sps = step_count_window / (current_time - last_time)
+                step_count_window = 0
+                last_time = current_time
+
             #store next observation and dones
             obs[step] = next_obs# current observation
             dones[step] = next_done #tell if episode terminated or not
@@ -610,17 +618,17 @@ if __name__ == "__main__":
         if update % 10 == 0:
             print("")
             if loss_count > 0:
-                    print(f"SPS = {int(game_steps / (time.time() - start_time))}, Episode return = {episodic_reward} \
+                    print(f"SPS = {sps}, Episode return = {episodic_reward} \
                             ,Episode len = {episodic_len}, Episode loss = {loss_total}, Average loss = {loss_total/loss_count} \
                             ,Epoch = {epoch},Time Steps = {game_steps}, Learning Rate ={optimizer.param_groups[0]['lr']}")
             print("")
         if update % 10 == 0:
             save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,
-                        total_episodes=total_episodes,start_time=start_time) 
+                        total_episodes=total_episodes) 
         
         if update % 1000 == 0:
             save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,
-                        total_episodes=total_episodes,start_time=start_time,
+                        total_episodes=total_episodes,
                         weights_filename=f"models/ppo/ppo_iter_{update}.pt")
 
         #debug variable:explained variance - indicate if the value function is a good indicator of the returns
@@ -657,10 +665,10 @@ if __name__ == "__main__":
             "losses/clipfrac": np.mean(clipfracs),
             "losses/explained_variance": explained_var,
 
-            "Charts/SPS": int(game_steps / (time.time() - start_time))
+            "Charts/SPS": sps
         })
     
     save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,
-                total_episodes=total_episodes,start_time=start_time)
+                total_episodes=total_episodes)
     envs.close()
     wandb.finish()

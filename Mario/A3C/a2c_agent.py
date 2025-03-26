@@ -23,7 +23,6 @@ class Agent:
         self.curr_epoch = 1 #what the current epoch is
         self.entropy = 0
         self.device = device
-        self.start_time_prev = None
         print(f"Device for Agent = {device}")
 
 
@@ -105,9 +104,8 @@ class Agent:
             'optimizer_state_dict': self.optimizer.state_dict(),
             'epoch': epoch,      # Save the current epoch
             'game_steps': self.game_steps,  # Save the global step
-            'completed_episodes' : self.num_completed_episodes, # num of epochs where
+            'completed_episodes' : self.num_completed_episodes, # num of epochs where flag is gotten
             'total_episodes': self.total_episodes, #total number of completed epochs/episodes
-            'start_time': self.start_time_prev,
         }
 
         print("...saving checkpoint...")

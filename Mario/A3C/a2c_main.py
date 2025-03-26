@@ -124,10 +124,14 @@ def train(env,device,args):
 
     game_steps = agent.game_steps
 
+    num_completed_episodes = agent.num_completed_episodes
     states = env.reset() #reset once at the start
-
-    start_time = time.time()
     episodes = agent.total_episodes
+
+    sps = 0
+    window_sec = 10 # number of seconds in which Steps Per Second(SPS) is calculated
+    step_count_window = 0# number of time steps seen in the window time
+    last_time = time.time()
 
     for epoch in range(agent.curr_epoch,n_epochs+1):
 
@@ -145,7 +149,16 @@ def train(env,device,args):
             action, log_probs, state_value, entropy = agent.choose_action_entropy(states) #get a list of actions chosen for each env
             next_states, rewards, dones, info = env.step(action)
 
-            game_steps += num_envs #8 envs took a step
+            game_steps += 1 * num_envs #8 envs took a step
+
+            
+            #track how many steps taken in given time window
+            step_count_window += 1 * args.num_envs
+            current_time = time.time()
+            if current_time - last_time >= window_sec:
+                sps = step_count_window / (current_time - last_time)
+                step_count_window = 0
+                last_time = current_time
 
             # Store experiences
             ep_value_preds[step] = torch.squeeze(state_value)
@@ -202,14 +215,14 @@ def train(env,device,args):
             "losses/policy_loss": actor_loss,
             "losses/entropy": entropy_loss.item(),
 
-            "Charts/SPS": int(game_steps / (time.time() - start_time))
+            "Charts/SPS": sps
         })
 
         if epoch % 10 == 0:
             print("")
             print(f"Loss = {loss}, Epoch = {epoch}, \
                         Time Steps = {game_steps}, entropy = {entropy}, \
-                        SPS = {int(game_steps / (time.time() - start_time))}")
+                        SPS = {sps}")
             print("")
 
         if epoch % 10 == 0:
@@ -302,7 +315,8 @@ if __name__ == "__main__":
                     config=vars(args),
                     name=run_name,
                     monitor_gym=False, # Monitors videos, but for old gym. Doesn't work now
-                    save_code=True
+                    save_code=True,
+                    mode="disabled"
                 )
                 print(f"Resumed existing run with ID: {run_id}")
             else:
@@ -313,7 +327,8 @@ if __name__ == "__main__":
                     config=vars(args),
                     name=run_name,
                     monitor_gym=False, # Monitors videos, but for old gym. Doesn't work now
-                    save_code=True
+                    save_code=True,
+                    mode="disabled"
                 )
                 print(f"Started new run with ID: {run.id}")
 

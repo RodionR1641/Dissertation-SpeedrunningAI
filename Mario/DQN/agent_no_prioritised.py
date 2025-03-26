@@ -192,7 +192,11 @@ class Agent:
         
         episodic_return = 0
         episodic_len = 0
-        start_time = time.time()
+        
+        sps = 0
+        window_sec = 10 # number of seconds in which Steps Per Second(SPS) is calculated
+        step_count_window = 0# number of time steps seen in the window time
+        last_time = time.time()
 
         for epoch in range(self.curr_epoch,epochs+1):
             state = self.env.reset() #reset the environment for each iteration
@@ -207,6 +211,15 @@ class Agent:
                 action = self.get_action(state)
 
                 self.game_steps += 1
+
+                #track how many steps taken in given time window for SPS
+                step_count_window += 1
+                current_time = time.time()
+                if current_time - last_time >= window_sec:
+                    sps = step_count_window / (current_time - last_time)
+                    step_count_window = 0
+                    last_time = current_time
+
                 next_state,reward,done,info = self.env.step(action)
                 #order of list matters
                 self.memory.insert(state, action, reward, next_state, done)
@@ -283,7 +296,7 @@ class Agent:
                     print(f"Episode return = {episodic_return}, Episode len = {episodic_len},  \
                         Episode loss = {ep_loss}, Average loss = {ep_loss/loss_count}, Epoch = {epoch}, \
                         Time Steps = {self.game_steps}, epsilon = {self.epsilon}, \
-                        SPS = {int(self.game_steps / (time.time() - start_time))}")
+                        SPS = {sps}")
                 print("")
             if epoch % 10 == 0:
                 self.save_models(epoch=epoch) #save models every 100th epoch
@@ -299,7 +312,7 @@ class Agent:
                 "Charts/epochs": epoch,
                 "Charts/epsilon": self.epsilon,
 
-                "Charts/SPS": int(self.game_steps / (time.time() - start_time))
+                "Charts/SPS": sps
             })
 
             if loss > 0 or loss_count > 0:

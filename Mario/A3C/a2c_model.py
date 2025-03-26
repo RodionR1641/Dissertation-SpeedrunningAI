@@ -23,6 +23,9 @@ class ActorCritic(nn.Module):
         self.flatten = nn.Flatten()
         flat_size = self.get_flat_size(input_shape)
 
+        self.actor_pi1 = nn.Linear(flat_size,n_actions)
+        self.critic_value1 = nn.Linear(flat_size,1)
+        """
         self.actor_pi1 = nn.Linear(flat_size,1024)
         self.actor_pi2 = nn.Linear(1024,1024)
         self.actor_pi3 = nn.Linear(1024,n_actions) #probabiltiy distribution
@@ -30,7 +33,7 @@ class ActorCritic(nn.Module):
         self.critic_value1 = nn.Linear(flat_size,1024)
         self.critic_value2 = nn.Linear(1024,1024)
         self.critic_value3 = nn.Linear(1024,1)
-    
+        """
     
     def forward(self,state):
 
@@ -42,13 +45,15 @@ class ActorCritic(nn.Module):
         x = self.relu(self.conv3(x))
         x = self.flatten(x)
 
-        actor_pi = self.relu(self.actor_pi1(x))
-        actor_pi = self.relu(self.actor_pi2(actor_pi))
-        actor_pi = self.actor_pi3(actor_pi) #shape [n_envs,n_acitions]
+        actor_pi = (self.actor_pi1(x))
+        #actor_pi = self.relu(self.actor_pi1(x))
+        #actor_pi = self.relu(self.actor_pi2(actor_pi))
+        #actor_pi = self.actor_pi3(actor_pi) #shape [n_envs,n_acitions]
 
-        critic_value = self.relu(self.critic_value1(x))
-        critic_value = self.relu(self.critic_value2(critic_value))
-        critic_value = self.critic_value3(critic_value) #shape [n_envs]
+        critic_value = (self.critic_value1(x))
+        #critic_value = self.relu(self.critic_value1(x))
+        #critic_value = self.relu(self.critic_value2(critic_value))
+        #critic_value = self.critic_value3(critic_value) #shape [n_envs]
 
         return (actor_pi, critic_value) #return probabilities and critic value
 

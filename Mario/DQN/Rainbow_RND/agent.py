@@ -539,7 +539,11 @@ class Agent_Rainbow_RND:
         #kept outside outer loop to not lose the data
         episodic_return = 0 #note, this is only the extrinsic reward of the environment
         episodic_len = 0
-        start_time = time.time()
+
+        sps = 0
+        window_sec = 10 # number of seconds in which Steps Per Second(SPS) is calculated
+        step_count_window = 0# number of time steps seen in the window time
+        last_time = time.time()
 
         for epoch in range(self.curr_epoch,epochs+1):
             state = self.env.reset() #reset the environment for each iteration
@@ -557,6 +561,14 @@ class Agent_Rainbow_RND:
                 action = self.get_action(state) #this will store the state and action in transition
 
                 self.game_steps += 1
+
+                #track how many steps taken in given time window for SPS
+                step_count_window += 1
+                current_time = time.time()
+                if current_time - last_time >= window_sec:
+                    sps = step_count_window / (current_time - last_time)
+                    step_count_window = 0
+                    last_time = current_time
 
                 #RND: compute intrinsic reward on the current state
                 ##make sure it is a tensor when passed into network -> convert Lazy Frames into tensor. make sure it has 
@@ -623,7 +635,7 @@ class Agent_Rainbow_RND:
                 "Charts/intrinsic_reward": ep_reward_intrinsic/episodic_len,
                 "Charts/extrinsic_reward": ep_reward_extrinsic/episodic_len,
 
-                "Charts/SPS": int(self.game_steps / (time.time() - start_time))
+                "Charts/SPS": sps
             })
 
             if loss > 0 or loss_count > 0:
@@ -643,7 +655,7 @@ class Agent_Rainbow_RND:
                         Episode loss = {ep_loss}, Average loss = {ep_loss/loss_count}, Epoch = {epoch}, \
                         Time Steps = {self.game_steps}, Extrinsic Reward = {ep_reward_extrinsic}, \
                         Intrinsic Reward = {ep_reward_intrinsic}, Beta = {self.beta}, \
-                        SPS = {int(self.game_steps / (time.time() - start_time))}")
+                        SPS = {sps}")
                 print("")
             
             if epoch % 10 == 0:
