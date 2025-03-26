@@ -326,6 +326,8 @@ if __name__ == "__main__":
             wandb.define_metric("losses/*", step_metric="episodes")
             wandb.define_metric("losses_avg/*", step_metric="game_steps")
             wandb.define_metric("losses_avg/*", step_metric="episodes")
+            wandb.define_metric("losses_total/*", step_metric="game_steps")
+            wandb.define_metric("losses_total/*", step_metric="episodes")
 
         except wandb.Error as e:
             print(f"Failed to initialize/resume W&B run: {e}")
