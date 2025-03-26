@@ -67,7 +67,7 @@ def test(env, device):
     env.close()
 
 #these models take a while to train, want to save it and reload on start. Save both target and online for exact reproducibility
-def save_models(num_updates,game_steps,num_completed_episodes,total_episodes, weights_filename="models/ppo/ppo_latest.pth"):
+def save_models(num_updates,game_steps,num_completed_episodes,total_episodes,start_time,weights_filename="models/ppo/ppo_latest.pth"):
     #state_dict() -> dictionary of the states/weights in a given model
     # we override nn.Module, so this can be done
 
@@ -79,13 +79,12 @@ def save_models(num_updates,game_steps,num_completed_episodes,total_episodes, we
         'game_steps': game_steps,  # Save the game step
         'num_completed_episodes': num_completed_episodes,
         'total_episodes': total_episodes,
+        'start_time': start_time,
     }
 
     print("...saving checkpoint...")
-    if not os.path.exists("models"):
-        os.mkdir("models")
     if not os.path.exists("models/ppo"):
-        os.mkdir("models/ppo")
+        os.makedirs("models/ppo",exist_ok=True)
     torch.save(checkpoint,weights_filename)
 
 #if model doesnt exist, we just have a random model
@@ -100,13 +99,14 @@ def load_models(weights_filename="models/ppo/ppo_latest.pth"):
         game_steps = checkpoint["game_steps"]
         num_completed_episodes = checkpoint["num_completed_episodes"]
         total_episodes = checkpoint["total_episodes"]
+        start_time_prev = checkpoint["start_time"]
 
         ac_model.to(device)
 
         print(f"Loaded weights filename: {weights_filename}, curr_epoch_update = {num_updates}, \
                   game steps = {game_steps}, optimizer learning rate = { checkpoint['learning_rate']}")  
 
-        return num_updates, game_steps, num_completed_episodes, total_episodes          
+        return num_updates, game_steps, num_completed_episodes, total_episodes, start_time_prev        
     except Exception as e:
         print(f"No weights filename: {weights_filename}, using a random initialised model")
         print(f"Error: {e}")
@@ -254,11 +254,12 @@ if __name__ == "__main__":
     curr_num_updates = 1
     num_completed_episodes = 0#how many games have ended in getting the flag
     total_episodes = 1 #total number of epochs/episodes of game playing that happened
+    start_time_prev = None
 
     #load the model to continue training
     if load_models_flag == True:
         try:
-            curr_num_updates, game_steps, num_completed_episodes, total_episodes = load_models()
+            curr_num_updates, game_steps, num_completed_episodes, total_episodes,start_time_prev = load_models()
         except ModelLoadingError as e:
             pass #no need to do anything here, just keep game_steps and curr_updates 0
 
@@ -342,7 +343,11 @@ if __name__ == "__main__":
     dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
     values = torch.zeros((args.num_steps, args.num_envs)).to(device)
 
-    start_time = time.time() #helps to calculate fps later
+    if start_time_prev:
+        start_time = start_time_prev
+    else:
+        start_time = time.time() #helps to calculate sps later
+
     next_obs = torch.Tensor(envs.reset()).to(device) #store initial and subsequent observations
     next_done = torch.zeros(args.num_envs).to(device)
     num_updates = args.total_timesteps // args.batch_size # e.g. 25k/512, this is how many iterations of updating training we have
@@ -395,7 +400,7 @@ if __name__ == "__main__":
             actions[step] = action
             logprobs[step] = logprob
             
-            next_obs, reward, done, info = envs.step(action) #action on cpu, converted to numpy as env expects it to be
+            next_obs, reward, done, info = envs.step(action.cpu().numpy()) #action on cpu, converted to numpy as env expects it to be
             #store rewards and update variables, make sure tensors
             rewards[step] = torch.tensor(reward).to(device).view(-1)# to gpu
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(done).to(device)   #reassign variables
@@ -610,11 +615,13 @@ if __name__ == "__main__":
                             ,Epoch = {epoch},Time Steps = {game_steps}, Learning Rate ={optimizer.param_groups[0]['lr']}")
             print("")
         if update % 10 == 0:
-            save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,total_episodes=total_episodes) 
+            save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,
+                        total_episodes=total_episodes,start_time=start_time) 
         
         if update % 1000 == 0:
-            save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,total_episodes=total_episodes
-                        ,weights_filename=f"models/ppo/ppo_iter_{update}.pt")
+            save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,
+                        total_episodes=total_episodes,start_time=start_time,
+                        weights_filename=f"models/ppo/ppo_iter_{update}.pt")
 
         #debug variable:explained variance - indicate if the value function is a good indicator of the returns
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
@@ -628,6 +635,12 @@ if __name__ == "__main__":
             "Charts/learning_rate": optimizer.param_groups[0]["lr"],
             "Charts/epochs": update,
             
+            #Total loss for the episode
+            "losses_total/total_loss": loss_total,
+            "losses_total/value_loss": v_loss_total,
+            "losses_total/policy_loss": pg_loss_total,
+            "losses_total/entropy": entropy_loss_total,
+
             # Average losses (more representative)
             "losses_avg/loss": loss_total/loss_count,
             "losses_avg/value_loss": v_loss_total/loss_count,
@@ -647,6 +660,7 @@ if __name__ == "__main__":
             "Charts/SPS": int(game_steps / (time.time() - start_time))
         })
     
-    save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,total_episodes=total_episodes)
+    save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,
+                total_episodes=total_episodes,start_time=start_time)
     envs.close()
     wandb.finish()

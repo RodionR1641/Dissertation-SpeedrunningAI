@@ -23,6 +23,7 @@ class Agent:
         self.curr_epoch = 1 #what the current epoch is
         self.entropy = 0
         self.device = device
+        self.start_time_prev = None
         print(f"Device for Agent = {device}")
 
 
@@ -106,13 +107,12 @@ class Agent:
             'game_steps': self.game_steps,  # Save the global step
             'completed_episodes' : self.num_completed_episodes, # num of epochs where
             'total_episodes': self.total_episodes, #total number of completed epochs/episodes
+            'start_time': self.start_time_prev,
         }
 
         print("...saving checkpoint...")
-        if not os.path.exists("models"):
-            os.mkdir("models")
-        if not os.path.exists("models/a2c"):
-            os.mkdir("models/a2c")
+        if not os.path.exists("models/ppo"):
+            os.makedirs("models/ppo",exist_ok=True)
         torch.save(checkpoint,weights_filename)
 
     #if model doesnt exist, we just have a random model
