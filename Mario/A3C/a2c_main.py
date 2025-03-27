@@ -70,7 +70,7 @@ def parse_args():
         help="the discount factor gamma")
     parser.add_argument("--learning-rate", type=float, default=1e-5,
         help="the learning rate of the optimizer")
-    parser.add_argument("--n-epochs", type=int, default=200_000,
+    parser.add_argument("--n-epochs", type=int, default=50_000,
         help="total timesteps of the experiments")
     parser.add_argument("--lam", type=float, default=0.95,
         help="lam parameter of GAE"),
@@ -122,10 +122,8 @@ def train(env,device,args):
 
     n_epochs = args.n_epochs
 
-    game_steps = agent.game_steps
-
-    num_completed_episodes = agent.num_completed_episodes
     states = env.reset() #reset once at the start
+
     episodes = agent.total_episodes
 
     sps = 0
@@ -149,7 +147,7 @@ def train(env,device,args):
             action, log_probs, state_value, entropy = agent.choose_action_entropy(states) #get a list of actions chosen for each env
             next_states, rewards, dones, info = env.step(action)
 
-            game_steps += 1 * num_envs #8 envs took a step
+            agent.game_steps += 1 * num_envs #8 envs took a step
 
             
             #track how many steps taken in given time window
@@ -178,7 +176,7 @@ def train(env,device,args):
 
                     #print(f"game_step={game_steps}, episodic_return={episodic_reward}, episodic len={episodic_len}")
                     wandb.log({
-                        "game_steps": game_steps,
+                        "game_steps": agent.game_steps,
                         "episodes": episodes,
                         # Log by game_steps (fine-grained steps)
                         "Charts/episodic_return": episodic_reward,
@@ -186,14 +184,14 @@ def train(env,device,args):
                     })  # Default x-axis is game_steps
 
                     if item["flag_get"] == True:
-                        num_completed_episodes += 1
+                        agent.num_completed_episodes += 1
                         #MOST IMPORTANT - time to complete game. See if we improve in speedrunning when we finish the game
                         # Log completion metrics (by game_steps)
                         wandb.log({
-                            "game_steps": game_steps,  # Tracks the global step counter
+                            "game_steps": agent.game_steps,  # Tracks the global step counter
                             "episodes": episodes,
                             "Charts/time_complete": item["time"],
-                            "Charts/completion_rate": num_completed_episodes / agent.total_episodes,
+                            "Charts/completion_rate": agent.num_completed_episodes / agent.total_episodes,
                         })
         
         critic_loss, actor_loss,entropy_loss = agent.get_losses(
@@ -204,7 +202,7 @@ def train(env,device,args):
 
         wandb.log({
             # Learning rate and epoch tracking
-            "game_steps": game_steps,
+            "game_steps": agent.game_steps,
             "episodes": episodes,
             "Charts/learning_rate": agent.optimizer.param_groups[0]["lr"],
             "Charts/epochs": epoch,
@@ -221,7 +219,7 @@ def train(env,device,args):
         if epoch % 10 == 0:
             print("")
             print(f"Loss = {loss}, Epoch = {epoch}, \
-                        Time Steps = {game_steps}, entropy = {entropy}, \
+                        Time Steps = {agent.game_steps}, entropy = {entropy}, \
                         SPS = {sps}")
             print("")
 
@@ -229,7 +227,7 @@ def train(env,device,args):
             agent.save_models(epoch=epoch) #save model every 100th epoch
 
         if epoch % 100 == 0:
-            agent.save_models(epoch=epoch,weights_filename=f"models/a2c/a2c_{epoch}_{game_steps}.pt")
+            agent.save_models(epoch=epoch,weights_filename=f"models/a2c/a2c_{epoch}_{agent.game_steps}.pt")
     
     agent.save_models(epoch)
     env.close()

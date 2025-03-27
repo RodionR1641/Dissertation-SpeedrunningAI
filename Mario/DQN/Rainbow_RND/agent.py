@@ -354,7 +354,7 @@ class Agent_Rainbow_RND:
         
         self.game_steps = 0 #track how many steps taken over entire training
         self.env = env
-        self.num_completed_epochs = 0#how many games have ended in getting the flag
+        self.num_completed_episodes = 0#how many games have ended in getting the flag
 
         self.is_test = False #controls the test/train mode. Better than just having 2 files
         
@@ -613,14 +613,14 @@ class Agent_Rainbow_RND:
                     })  # Default x-axis is game_steps
 
                     if info["flag_get"] == True:
-                        num_completed_episodes += 1
+                        self.num_completed_episodes += 1
                         #MOST IMPORTANT - time to complete game. See if we improve in speedrunning when we finish the game
                         # Log completion metrics (by game_steps)
                         wandb.log({
                             "game_steps": self.game_steps,  # Tracks the global step counter
                             "episodes": episodes,
                             "Charts/time_complete": info["time"],
-                            "Charts/completion_rate": num_completed_episodes / episodes,
+                            "Charts/completion_rate": self.num_completed_episodes / episodes,
                         })
 
             wandb.log({
@@ -712,7 +712,7 @@ class Agent_Rainbow_RND:
             'beta': self.beta,  # Save the current beta value
             'epoch': epoch,      # Save the current epoch
             'game_steps': self.game_steps,  # Save the global step
-            'completed_epochs' : self.num_completed_epochs # num of epochs where
+            'num_completed_episodes' : self.num_completed_episodes # num of epochs where the game flag was received
         }
 
         print("...saving checkpoint...")
@@ -734,7 +734,7 @@ class Agent_Rainbow_RND:
             self.beta = checkpoint["beta"]
             self.curr_epoch = checkpoint["epoch"]
             self.game_steps = checkpoint["game_steps"]
-            self.num_completed_epochs = checkpoint["completed_epochs"]
+            self.num_completed_episodes = checkpoint["num_completed_episodes"]
 
             print(f"Loaded weights filename: {weights_filename}, curr_epoch = {self.curr_epoch}, beta = {self.beta}, \
                   game steps = {self.game_steps}")    

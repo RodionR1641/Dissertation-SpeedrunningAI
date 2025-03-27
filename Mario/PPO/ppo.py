@@ -122,7 +122,7 @@ def parse_args():
         help="the learning rate of the optimizer")
     parser.add_argument("--seed", type=int, default=777,
         help="seed of the experiment")
-    parser.add_argument("--total-timesteps", type=int, default=10_000_000, # 10 million timesteps
+    parser.add_argument("--total-timesteps", type=int, default=50_000_000, # 50 million timesteps, roughly 50k episodes
         help="total timesteps of the experiments")
     parser.add_argument("--torch-deterministic", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True, #reproduce experiments
         help="if toggled, `torch.backends.cudnn.deterministic=False`")

@@ -136,7 +136,7 @@ class Agent:
         self.epsilon_decay = 0.99999975#1- (((epsilon - min_epsilon) / nb_warmup) *2) # linear decay rate, close to the nb_warmup steps count
 
         self.game_steps = 0 #track how many steps taken over entire training
-        self.num_completed_epochs = 0#how many games have ended in getting the flag
+        self.num_completed_episodes = 0#how many games have ended in getting the flag
 
         self.loss = torch.nn.MSELoss()
 
@@ -150,7 +150,7 @@ class Agent:
         if os.path.exists("models/dqn") and load_models_flag==True:
             self.load_models()
         
-        self.epoch = self.curr_epoch #track the current epoch
+        self.epoch = self.curr_epoch #track the current epoch for video naming
         
         self.model.to(self.device)
         self.target_model.to(self.device)
@@ -204,7 +204,7 @@ class Agent:
             ep_loss = 0
             loss = 0
             loss_count = 0
-            self.epoch = epoch
+            self.epoch = epoch #make sure it is tracked for video file naming
             episodes = epoch
 
             while not done:
@@ -278,14 +278,14 @@ class Agent:
                     })  # Default x-axis is game_steps
 
                     if info["flag_get"] == True:
-                        num_completed_episodes += 1
+                        self.num_completed_episodes += 1
                         #MOST IMPORTANT - time to complete game. See if we improve in speedrunning when we finish the game
                         # Log completion metrics (by game_steps)
                         wandb.log({
                             "game_steps": self.game_steps,  # Tracks the global step counter
                             "episodes": episodes,
                             "Charts/time_complete": info["time"],
-                            "Charts/completion_rate": num_completed_episodes / episodes,
+                            "Charts/completion_rate": self.num_completed_episodes / episodes,
                         })
                 
              
@@ -368,7 +368,7 @@ class Agent:
             'epsilon': self.epsilon,  # Save the current epsilon value
             'epoch': epoch,      # Save the current epoch
             'game_steps': self.game_steps,  # Save the global step
-            'completed_epochs' : self.num_completed_epochs # num of epochs where
+            'num_completed_episodes' : self.num_completed_episodes # num of epochs where the game flag was received
         }
 
         print("...saving checkpoint...")
@@ -387,7 +387,7 @@ class Agent:
             self.curr_epoch = checkpoint["epoch"]
             self.epsilon = checkpoint["epsilon"]
             self.game_steps = checkpoint["game_steps"]
-            self.num_completed_epochs = checkpoint["completed_epochs"]
+            self.num_completed_episodes = checkpoint["num_completed_episodes"]
 
             self.model.to(self.device)
             self.target_model.to(self.device)
