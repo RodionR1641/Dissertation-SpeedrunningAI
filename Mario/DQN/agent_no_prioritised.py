@@ -372,8 +372,8 @@ class Agent:
         }
 
         print("...saving checkpoint...")
-        if not os.path.exists("models/dqn"):
-            os.mkdir("models/dqn")
+        if not os.path.exists("models/ppo"):
+            os.makedirs("models/ppo",exist_ok=True)
         torch.save(checkpoint,weights_filename)
     
     #if model doesnt exist, we just have a random model
