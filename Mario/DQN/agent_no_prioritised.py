@@ -8,6 +8,7 @@ from model_mobile_vit import MarioNet_ViT
 import os
 from gym.wrappers import RecordVideo
 import wandb
+from torch.nn.utils import clip_grad_norm_
 
 # Define log file name (per process)
 rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
@@ -161,7 +162,7 @@ class Agent:
 
     def record_video(self,run_name):
         self.env = RecordVideo(self.env,"videos/DQN",name_prefix=f"{run_name}_{self.epoch}"
-                          ,episode_trigger=lambda x: x % 100 == 0)  # Record every 100th episode
+                          ,episode_trigger=lambda x: x % 1000 == 0)  # Record every 1000th episode
 
     #state is image of our environment
     def get_action(self,state,test=False):
@@ -173,9 +174,7 @@ class Agent:
         else:
 
             #convert state into np_array for calculations, then make a tensor, then unsqueese to add batch dimension
-            state = torch.tensor(np.array(state), dtype=torch.float32) \
-                        .unsqueeze(0) \
-                        .to(self.model.device)
+            state = torch.tensor(np.array(state), dtype=torch.float32).unsqueeze(0).to(self.model.device)
             #use advantage function to calculate max action
             return self.model(state).argmax().item()
 
@@ -186,7 +185,7 @@ class Agent:
     def sync_networks(self):
         if self.game_steps % self.sync_network_rate == 0 and self.game_steps > 0:
             self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
-
+            print(f"synced target and online networks, current game step = {self.game_steps}")
     
     #epochs = how many iterations to train for
     def train(self, epochs):
@@ -256,11 +255,34 @@ class Agent:
                     #detach -> important as we dont want to back propagate on target network
                     target_b = (rewards + self.gamma * next_qsa_b * (1 - dones.float()) ) #1-dones.float() -> stop propagating when finished episode
                     
-
                     loss = self.loss(qsa_b,target_b)
                     loss.backward()
                     ep_loss += loss.item()
                     loss_count += 1
+
+                    #Track gradient norms for monitoring stability and see exploding or vanishing gradients
+                    total_norm = 0.0
+                    for p in self.model.parameters():
+                        if p.grad is not None:
+                            param_norm = p.grad.detach().data.norm(2)  # L2 norm here - get the gradient tensor, calculate the L2 norm
+                            #which is the square root of sum of squared values
+                            total_norm += param_norm.item() ** 2 # square each parameters norm and adds to total_norm
+                    total_norm = total_norm ** 0.5  #Overall gradient norm - square root of total
+                    
+                    #calculate per-layer gradient norms. Map layer names to their norms
+                    layer_norms = {
+                        name: p.grad.detach().norm(2).item() #map name and gradient norm of that layer
+                        for name, p in self.model.named_parameters() 
+                        if p.grad is not None
+                    }
+                    wandb.log({
+                        "game_steps": self.game_steps,
+                        "Gradient/gradient_norm_total": total_norm,
+                        **{f"Gradient/gradients/gradient_{name}": norm for name, norm in layer_norms.items()}
+                    })
+                    #clip gradient after the graphs as the graphs need to show the real gradient
+                    clip_grad_norm_(self.model.parameters(),10.0) #prevent exploding gradient
+
                     self.optimizer.step()
                     self.decay_epsilon() #decay epsilon at each step in environment
 
@@ -387,8 +409,8 @@ class Agent:
         }
 
         print("...saving checkpoint...")
-        if not os.path.exists("models/ppo"):
-            os.makedirs("models/ppo",exist_ok=True)
+        if not os.path.exists("models/dqn"):
+            os.makedirs("models/dqn",exist_ok=True)
         torch.save(checkpoint,weights_filename)
     
     #if model doesnt exist, we just have a random model

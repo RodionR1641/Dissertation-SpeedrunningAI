@@ -40,24 +40,22 @@ def parse_args():
     parser.add_argument("--resume-run", type=lambda x: bool(strtobool(x)), default= True , nargs="?", const=True,
         help="set to true if just want to test the agent playing the game")
     #agent type
-    parser.add_argument("--agent-type", type=int, default=0,
+    parser.add_argument("--agent-type", type=int, default=1,
         help="tells which DQN agent to use: 0=dueling double, 1=rainbow, 2=rainbow with RND")
     
 
-    parser.add_argument("--num-epochs", type=int, default=200_000,
+    parser.add_argument("--num-epochs", type=int, default=50_000,
         help="number of episodes the training goes for")
     # Algorithm specific arguments
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
     parser.add_argument("--learning-rate", type=float, default=1e-5,
         help="the learning rate of the optimizer")
-    parser.add_argument("--n-epochs", type=int, default=50_000,
-        help="total timesteps of the experiments")
     parser.add_argument("--memory-capacity", type=int, default=50_000,
         help="number of experiences stored in replay buffer"),
     parser.add_argument("--memory-capacity-rainbow", type=int, default=50_000,
         help="number of experiences stored in replay buffer"),
-    parser.add_argument("--batch-size", type=int, default=32,
+    parser.add_argument("--batch-size", type=int, default=128, #higher batch size than the usually used 32
         help="number of experiences sampled each time for training"),
     parser.add_argument("--epsilon", type=float, default=1.0,
         help="the starting epsilon value"),

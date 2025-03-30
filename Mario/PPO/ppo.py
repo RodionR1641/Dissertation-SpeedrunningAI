@@ -622,6 +622,28 @@ if __name__ == "__main__":
                 #backpropagation and optimising now
                 optimizer.zero_grad()
                 loss.backward()
+
+                #Track gradient norms for monitoring stability and see exploding or vanishing gradients
+                total_norm = 0.0
+                for p in ac_model.parameters():
+                    if p.grad is not None:
+                        param_norm = p.grad.detach().data.norm(2)  # L2 norm here - get the gradient tensor, calculate the L2 norm
+                        #which is the square root of sum of squared values
+                        total_norm += param_norm.item() ** 2 # square each parameters norm and adds to total_norm
+                total_norm = total_norm ** 0.5  #Overall gradient norm - square root of total
+                
+                #calculate per-layer gradient norms. Map layer names to their norms
+                layer_norms = {
+                    name: p.grad.detach().norm(2).item() #map name and gradient norm of that layer
+                    for name, p in ac_model.named_parameters() 
+                    if p.grad is not None
+                }
+                wandb.log({
+                    "game_steps": game_steps,
+                    "Gradient/gradient_norm_total": total_norm,
+                    **{f"Gradient/gradients/gradient_{name}": norm for name, norm in layer_norms.items()}
+                })
+
                 # PPO implements global gradient clipping. We set up a maximum gradient norm. Prevent gradients from exploding
                 nn.utils.clip_grad_norm_(ac_model.parameters(), args.max_grad_norm)
                 optimizer.step()

@@ -383,7 +383,7 @@ class Agent_Rainbow:
     def sync_networks(self):
         if self.game_steps % self.sync_network_rate == 0 and self.game_steps > 0:
             self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
-            print("synced target and online networks")
+            print(f"synced target and online networks, current game step = {self.game_steps}")
 
     def step_env(self,action,intrinsic_reward=None):
         next_state,reward,done, info = self.env.step(action)
@@ -436,7 +436,30 @@ class Agent_Rainbow:
         self.optimizer.zero_grad()
         loss.backward()
         ep_loss = loss.item()
+
+        #Track gradient norms for monitoring stability and see exploding or vanishing gradients
+        total_norm = 0.0
+        for p in self.model.parameters():
+            if p.grad is not None:
+                param_norm = p.grad.detach().data.norm(2)  # L2 norm here - get the gradient tensor, calculate the L2 norm
+                #which is the square root of sum of squared values
+                total_norm += param_norm.item() ** 2 # square each parameters norm and adds to total_norm
+        total_norm = total_norm ** 0.5  #Overall gradient norm - square root of total
+        
+        #calculate per-layer gradient norms. Map layer names to their norms
+        layer_norms = {
+            name: p.grad.detach().norm(2).item() #map name and gradient norm of that layer
+            for name, p in self.model.named_parameters() 
+            if p.grad is not None
+        }
+        wandb.log({
+            "game_steps": self.game_steps,
+            "Gradient/gradient_norm_total": total_norm,
+            **{f"Gradient/gradients/gradient_{name}": norm for name, norm in layer_norms.items()}
+        })
+        #clip gradient after the graphs as the graphs need to show the real gradient
         clip_grad_norm_(self.model.parameters(),10.0) #prevent exploding gradient
+
         self.optimizer.step()
 
         #PER: update priorities
@@ -681,8 +704,8 @@ class Agent_Rainbow:
         }
 
         print("...saving checkpoint...")
-        if not os.path.exists("models/ppo"):
-            os.makedirs("models/ppo",exist_ok=True)
+        if not os.path.exists("models/rainbow"):
+            os.makedirs("models/rainbow",exist_ok=True)
         torch.save(checkpoint,weights_filename)
     
     #if model doesnt exist, we just have a random model

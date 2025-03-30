@@ -3,6 +3,8 @@ from a2c_model import ActorCritic
 from torch.distributions import Categorical # taking probability from network and map it to distribution for us
 import torch.optim as optim
 import os
+import wandb
+from torch.nn.utils import clip_grad_norm_
 
 class Agent:
     def __init__(self,input_shape,lr_rate=1e-5,device="cpu", gamma=0.99, n_actions=5,num_envs=8):
@@ -90,6 +92,30 @@ class Agent:
 
         self.optimizer.zero_grad()
         loss.backward()
+
+        #Track gradient norms for monitoring stability and see exploding or vanishing gradients
+        total_norm = 0.0
+        for p in self.actor_critic.parameters():
+            if p.grad is not None:
+                param_norm = p.grad.detach().data.norm(2)  # L2 norm here - get the gradient tensor, calculate the L2 norm
+                #which is the square root of sum of squared values
+                total_norm += param_norm.item() ** 2 # square each parameters norm and adds to total_norm
+        total_norm = total_norm ** 0.5  #Overall gradient norm - square root of total
+        
+        #calculate per-layer gradient norms. Map layer names to their norms
+        layer_norms = {
+            name: p.grad.detach().norm(2).item() #map name and gradient norm of that layer
+            for name, p in self.actor_critic.named_parameters() 
+            if p.grad is not None
+        }
+        wandb.log({
+            "game_steps": self.game_steps,
+            "Gradient/gradient_norm_total": total_norm,
+            **{f"Gradient/gradients/gradient_{name}": norm for name, norm in layer_norms.items()}
+        })
+        #clip gradient after the graphs as the graphs need to show the real gradient
+        clip_grad_norm_(self.actor_critic.parameters(),10.0) #prevent exploding gradient
+
         self.optimizer.step()
 
         return loss.item(), critic_loss.item(), actor_loss.item()
