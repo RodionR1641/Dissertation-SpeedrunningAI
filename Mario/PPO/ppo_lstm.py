@@ -86,6 +86,7 @@ def save_models(num_updates,game_steps,num_completed_episodes,total_episodes,
         'game_steps': game_steps,  # Save the game step
         'num_completed_episodes': num_completed_episodes,
         'total_episodes': total_episodes,
+        'best_time_episode': best_time_episode  
     }
 
     print("...saving checkpoint...")
@@ -105,13 +106,14 @@ def load_models(weights_filename="models/ppo_lstm/ppo_lstm_latest.pth"):
         game_steps = checkpoint["game_steps"]
         num_completed_episodes = checkpoint["num_completed_episodes"]
         total_episodes = checkpoint["total_episodes"]
+        best_time_episode = checkpoint["best_time_episode"]
 
         ac_model.to(device)
 
         print(f"Loaded weights filename: {weights_filename}, curr_epoch_update = {num_updates}, \
                   game steps = {game_steps}, optimizer learning rate = { checkpoint['learning_rate']}")    
 
-        return num_updates, game_steps, num_completed_episodes, total_episodes                  
+        return num_updates, game_steps, num_completed_episodes, total_episodes, best_time_episode            
     except Exception as e:
         print(f"No weights filename: {weights_filename}, using a random initialised model")
         print(f"Error: {e}")
@@ -253,12 +255,12 @@ if __name__ == "__main__":
     curr_num_updates = 1
     num_completed_episodes = 0#how many games have ended in getting the flag
     total_episodes = 1 #total number of epochs/episodes of game playing that happened
-    start_time_prev = None
+    best_time_episode = 1e9#very high number to start with
 
     #load the model to continue training
     if load_models_flag == True:
         try:
-            curr_num_updates, game_steps, num_completed_episodes, total_episodes = load_models()
+            curr_num_updates, game_steps, num_completed_episodes, total_episodes,best_time_episode = load_models()
         except ModelLoadingError as e:
             pass #no need to do anything here, just keep game_steps and curr_updates 0
 
@@ -436,6 +438,20 @@ if __name__ == "__main__":
                             "Charts/time_complete": item["time"],
                             "Charts/completion_rate": num_completed_episodes / total_episodes,
                         })
+
+                        if item["time"] < best_time_episode:
+                            #find the previous file with this old best time
+                            filename = f"models/ppo_lstm/best_{best_time_episode}.pth"
+                            new_filename = f"models/ppo_lstm/best_{item['time']}.pth"
+
+                            #rename so that not saving a new file for each new time
+                            if os.path.exists(filename):
+                                os.rename(filename,new_filename)
+                            
+                            #save this model that gave best time, if the model didnt exist then its just created
+                            best_time_episode = item["time"]
+                            save_models(num_updates,game_steps,num_completed_episodes,total_episodes,best_time_episode
+                                        ,weights_filename=new_filename)
             
         # use General Advantage Estimation(GAE) to do advantage estimation
 
@@ -582,12 +598,12 @@ if __name__ == "__main__":
             print("")
         if update % 10 == 0:
             save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,
-                        total_episodes=total_episodes) 
+                        total_episodes=total_episodes,best_time_episode=best_time_episode) 
         
         if update % 1000 == 0:
             save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,
-                        total_episodes=total_episodes
-                        ,weights_filename=f"models/ppo_lstm/ppo_lstm_iter_{update}.pt")
+                        total_episodes=total_episodes, best_time_episode=best_time_episode,
+                        weights_filename=f"models/ppo_lstm/ppo_lstm_iter_{update}.pt")
 
         #debug variable:explained variance - indicate if the value function is a good indicator of the returns ///
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
@@ -627,6 +643,6 @@ if __name__ == "__main__":
         })
 
     save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,
-                total_episodes=total_episodes)
+                total_episodes=total_episodes,best_time_episode=best_time_episode)
     envs.close()
     wandb.finish()

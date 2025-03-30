@@ -18,13 +18,11 @@ class MarioNet(nn.Module):
             nn.ReLU(),
             nn.Flatten(),
             #linear layer that takes input of the flattened features
-            layer_init(nn.Linear(64*7*7, 10)), # get reduced into a 7x7 image with 64 channels 
+            layer_init(nn.Linear(64*7*7, 1024)), # get reduced into a 7x7 image with 64 channels 
             nn.ReLU(),
         )
-        self.actor = layer_init(nn.Linear(10, envs.single_action_space.n), std=0.01)
-        self.critic = layer_init(nn.Linear(10,1), std=1)
         
-        """
+        
         self.critic = nn.Sequential(
             layer_init(nn.Linear(1024,1024)), #input shape to first layer is product of obesrvation space
             nn.ReLU(),
@@ -36,7 +34,7 @@ class MarioNet(nn.Module):
             nn.ReLU(),
             layer_init(nn.Linear(1024,envs.single_action_space.n) , std=0.01),
         )
-        """
+        
         self.device = device
         self.to(device)
     
@@ -58,22 +56,6 @@ class MarioNet(nn.Module):
         #return actions, log probabilities, entropies and values from critic
         return action,probabilities.log_prob(action), probabilities.entropy(),self.critic(hidden)
     
-    #these models take a while to train, want to save it and reload on start
-    def save_model(self, weights_filename="models/latest_ppo.pt"):
-        #state_dict() -> dictionary of the states/weights in a given model
-        # we override nn.Module, so this can be done
-        print("...saving checkpoint...")
-        if not os.path.exists("models"):
-            os.mkdir("models")
-        torch.save(self.state_dict(),weights_filename)
-    
-    def load_model(self, weights_filename="models/latest_ppo.pt",device="cpu"):
-        try:
-            self.load_state_dict(torch.load(weights_filename,map_location=device,weights_only=True))
-            print(f"Loaded weights filename: {weights_filename}")            
-        except Exception as e:
-            print(f"No weights filename: {weights_filename}")
-            print(f"Error: {e}")
 
 # Layer initialisation
 # PPO uses orthogonal initialisation on layers weight and constant initialisation on bias

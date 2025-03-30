@@ -28,7 +28,6 @@ class MarioNet(nn.Module):
             elif "weight" in name:
                 nn.init.orthogonal_(param,1.0)
 
-        # TODO: may need higher numbers here
         self.critic = nn.Sequential(
             layer_init(nn.Linear(128,128)), #input shape to first layer is product of obesrvation space
             nn.ReLU(),

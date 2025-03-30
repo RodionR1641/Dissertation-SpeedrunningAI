@@ -67,7 +67,8 @@ def test(env, device):
     env.close()
 
 #these models take a while to train, want to save it and reload on start. Save both target and online for exact reproducibility
-def save_models(num_updates,game_steps,num_completed_episodes,total_episodes,weights_filename="models/ppo/ppo_latest.pth"):
+def save_models(num_updates,game_steps,num_completed_episodes,total_episodes,best_time_episode
+                ,weights_filename="models/ppo/ppo_latest.pth"):
     #state_dict() -> dictionary of the states/weights in a given model
     # we override nn.Module, so this can be done
 
@@ -78,7 +79,8 @@ def save_models(num_updates,game_steps,num_completed_episodes,total_episodes,wei
         'num_updates': num_updates,      # Save the current epoch
         'game_steps': game_steps,  # Save the game step
         'num_completed_episodes': num_completed_episodes,
-        'total_episodes': total_episodes
+        'total_episodes': total_episodes,   
+        'best_time_episode': best_time_episode
     }
 
     print("...saving checkpoint...")
@@ -98,13 +100,14 @@ def load_models(weights_filename="models/ppo/ppo_latest.pth"):
         game_steps = checkpoint["game_steps"]
         num_completed_episodes = checkpoint["num_completed_episodes"]
         total_episodes = checkpoint["total_episodes"]
+        best_time_episode = checkpoint["best_time_episode"]
 
         ac_model.to(device)
 
         print(f"Loaded weights filename: {weights_filename}, curr_epoch_update = {num_updates}, \
                   game steps = {game_steps}, optimizer learning rate = { checkpoint['learning_rate']}")  
 
-        return num_updates, game_steps, num_completed_episodes, total_episodes        
+        return num_updates, game_steps, num_completed_episodes, total_episodes, best_time_episode
     except Exception as e:
         print(f"Didnt load filename(either due to error or it doesnt exist): {weights_filename}, using a random initialised model")
         print(f"Error: {e}")
@@ -252,11 +255,12 @@ if __name__ == "__main__":
     curr_num_updates = 1
     num_completed_episodes = 0#how many games have ended in getting the flag
     total_episodes = 1 #total number of epochs/episodes of game playing that happened
+    best_time_episode = 1e9#very high number to start with
 
     #load the model to continue training
     if load_models_flag == True:
         try:
-            curr_num_updates, game_steps, num_completed_episodes, total_episodes = load_models()
+            curr_num_updates, game_steps, num_completed_episodes, total_episodes,best_time_episode = load_models()
         except ModelLoadingError as e:
             pass #no need to do anything here, just keep game_steps and curr_updates 0
 
@@ -441,7 +445,20 @@ if __name__ == "__main__":
                             "Charts/time_complete": item["time"],
                             "Charts/completion_rate": num_completed_episodes / total_episodes,
                         })
-            
+
+                        if item["time"] < best_time_episode:
+                            #find the previous file with this old best time
+                            filename = f"models/ppo/best_{best_time_episode}.pth"
+                            new_filename = f"models/ppo/best_{item['time']}.pth"
+
+                            #rename so that not saving a new file for each new time
+                            if os.path.exists(filename):
+                                os.rename(filename,new_filename)
+                            
+                            #save this model that gave best time, if the model didnt exist then its just created
+                            best_time_episode = item["time"]
+                            save_models(num_updates,game_steps,num_completed_episodes,total_episodes,best_time_episode
+                                        ,weights_filename=new_filename)
         # use General Advantage Estimation(GAE) to do advantage estimation
 
         #PPO bootstraps values if environments are not done. The values of next observations are estimated as the end of rollout values
@@ -626,11 +643,11 @@ if __name__ == "__main__":
             print("")
         if update % 10 == 0:
             save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,
-                        total_episodes=total_episodes) 
+                        total_episodes=total_episodes,best_time_episode=best_time_episode) 
         
         if update % 1000 == 0:
             save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,
-                        total_episodes=total_episodes,
+                        total_episodes=total_episodes, best_time_episode=best_time_episode,
                         weights_filename=f"models/ppo/ppo_iter_{update}.pt")
 
         #debug variable:explained variance - indicate if the value function is a good indicator of the returns
@@ -671,6 +688,6 @@ if __name__ == "__main__":
         })
     
     save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,
-                total_episodes=total_episodes)
+                total_episodes=total_episodes,best_time_episode=best_time_episode)
     envs.close()
     wandb.finish()

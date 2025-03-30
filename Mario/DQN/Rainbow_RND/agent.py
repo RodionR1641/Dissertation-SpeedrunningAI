@@ -353,6 +353,7 @@ class Agent_Rainbow_RND:
         self.transition = list()
         
         self.game_steps = 0 #track how many steps taken over entire training
+        self.best_time_episode = 1e9 #best time of an episode in speedrunning
         self.env = env
         self.num_completed_episodes = 0#how many games have ended in getting the flag
 
@@ -550,6 +551,8 @@ class Agent_Rainbow_RND:
             done = False
             ep_reward_intrinsic = 0
             ep_reward_extrinsic = 0
+            intrinsic_reward = 0
+            extrinsic_reward = 0
             ep_loss = 0
             episodic_len = 0
             loss_count = 0
@@ -623,17 +626,33 @@ class Agent_Rainbow_RND:
                             "Charts/completion_rate": self.num_completed_episodes / episodes,
                         })
 
+                        if info["time"] < self.best_time_episode:
+                            #find the previous file with this old best time
+                            filename = f"models/rainbow_rnd/best_{self.best_time_episode}.pth"
+                            new_filename = f"models/rainbow_rnd/best_{info['time']}.pth"
+
+                            #rename so that not saving a new file for each new time
+                            if os.path.exists(filename):
+                                os.rename(filename,new_filename)
+                            
+                            #save this model that gave best time, if the model didnt exist then its just created
+                            self.best_time_episode = info["time"]
+                            self.save_models(epoch,new_filename)
+
             wandb.log({
                 "game_steps": self.game_steps,
                 "episodes": episodes,
                 "Charts/epochs": epoch,
                 "Charts/beta": self.beta,
                 #total extrinsic and intrinsic rewards for the episode
-                "Charts/intrinsic_reward": ep_reward_intrinsic,
-                "Charts/extrinsic_reward": ep_reward_extrinsic,
+                "Charts/intrinsic_reward_total": ep_reward_intrinsic,
+                "Charts/extrinsic_reward_total": ep_reward_extrinsic,
                 #average extrinsic and intrinsic rewards for the episode steps
-                "Charts/intrinsic_reward": ep_reward_intrinsic/episodic_len,
-                "Charts/extrinsic_reward": ep_reward_extrinsic/episodic_len,
+                "Charts/intrinsic_reward_avg": ep_reward_intrinsic/episodic_len,
+                "Charts/extrinsic_reward_avg": ep_reward_extrinsic/episodic_len,
+                #last extrinsic and intrinsic rewards
+                "Charts/intrinsic_reward": intrinsic_reward,
+                "Charts/extrinsic_reward"  : extrinsic_reward,
 
                 "Charts/SPS": sps
             })
@@ -712,7 +731,8 @@ class Agent_Rainbow_RND:
             'beta': self.beta,  # Save the current beta value
             'epoch': epoch,      # Save the current epoch
             'game_steps': self.game_steps,  # Save the global step
-            'num_completed_episodes' : self.num_completed_episodes # num of epochs where the game flag was received
+            'num_completed_episodes' : self.num_completed_episodes, # num of epochs where the game flag was received
+            'best_time_episode': self.best_time_episode
         }
 
         print("...saving checkpoint...")
@@ -735,6 +755,7 @@ class Agent_Rainbow_RND:
             self.curr_epoch = checkpoint["epoch"]
             self.game_steps = checkpoint["game_steps"]
             self.num_completed_episodes = checkpoint["num_completed_episodes"]
+            self.best_time_episode = checkpoint["best_time_episode"]
 
             print(f"Loaded weights filename: {weights_filename}, curr_epoch = {self.curr_epoch}, beta = {self.beta}, \
                   game steps = {self.game_steps}")    

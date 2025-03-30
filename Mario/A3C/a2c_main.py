@@ -193,6 +193,19 @@ def train(env,device,args):
                             "Charts/time_complete": item["time"],
                             "Charts/completion_rate": agent.num_completed_episodes / agent.total_episodes,
                         })
+
+                        if item["time"] < agent.best_time_episode:
+                            #find the previous file with this old best time
+                            filename = f"models/a2c/best_{agent.best_time_episode}.pth"
+                            new_filename = f"models/a2c/best_{item['time']}.pth"
+
+                            #rename so that not saving a new file for each new time
+                            if os.path.exists(filename):
+                                os.rename(filename,new_filename)
+                            
+                            #save this model that gave best time, if the model didnt exist then its just created
+                            agent.best_time_episode = item["time"]
+                            agent.save_models(epoch=epoch,weights_filename=new_filename)
         
         critic_loss, actor_loss,entropy_loss = agent.get_losses(
             ep_rewards,ep_action_log_probs,ep_value_preds,entropy,masks,gamma,lam,ent_coef

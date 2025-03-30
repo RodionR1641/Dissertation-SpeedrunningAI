@@ -22,6 +22,7 @@ class Agent:
         self.total_episodes = 1 #total number of epochs/episodes of game playing that happened
         self.curr_epoch = 1 #what the current epoch is
         self.entropy = 0
+        self.best_time_episode = 1e9
         self.device = device
         print(f"Device for Agent = {device}")
 
@@ -106,6 +107,7 @@ class Agent:
             'game_steps': self.game_steps,  # Save the global step
             'completed_episodes' : self.num_completed_episodes, # num of epochs where flag is gotten
             'total_episodes': self.total_episodes, #total number of completed epochs/episodes
+            'best_time_episode': self.best_time_episode
         }
 
         print("...saving checkpoint...")
@@ -124,6 +126,7 @@ class Agent:
             self.game_steps = checkpoint["game_steps"]
             self.num_completed_episodes = checkpoint["completed_episodes"]  
             self.total_episodes = checkpoint["total_episodes"]
+            self.best_time_episode = checkpoint["best_time_episode"]
             
             self.actor_critic.to(self.device)
 

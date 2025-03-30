@@ -345,6 +345,7 @@ class Agent_Rainbow:
         self.transition = list()
         
         self.game_steps = 0 #track how many steps taken over entire training
+        self.best_time_episode = 1e9
         self.env = env
         self.num_completed_episodes = 0#how many games have ended in getting the flag
 
@@ -585,6 +586,20 @@ class Agent_Rainbow:
                             "Charts/time_complete": info["time"],
                             "Charts/completion_rate": self.num_completed_episodes / episodes,
                         })
+
+                        if info["time"] < self.best_time_episode:
+                            #find the previous file with this old best time
+                            filename = f"models/rainbow/best_{self.best_time_episode}.pth"
+                            new_filename = f"models/rainbow/best_{info['time']}.pth"
+
+                            #rename so that not saving a new file for each new time
+                            if os.path.exists(filename):
+                                os.rename(filename,new_filename)
+                            
+                            #save this model that gave best time, if the model didnt exist then its just created
+                            self.best_time_episode = info["time"]
+                            self.save_models(epoch,new_filename)
+                            
             
 
             wandb.log({
@@ -666,7 +681,8 @@ class Agent_Rainbow:
             'beta': self.beta,  # Save the current beta value
             'epoch': epoch,      # Save the current epoch
             'game_steps': self.game_steps,  # Save the global step
-            'num_completed_episodes' : self.num_completed_episodes # num of epochs where the game flag was received
+            'num_completed_episodes' : self.num_completed_episodes, # num of epochs where the game flag was received
+            'best_time_episode': self.best_time_episode
         }
 
         print("...saving checkpoint...")
@@ -686,6 +702,7 @@ class Agent_Rainbow:
             self.curr_epoch = checkpoint["epoch"]
             self.game_steps = checkpoint["game_steps"]
             self.num_completed_episodes = checkpoint["num_completed_episodes"]
+            self.best_time_episode = checkpoint["best_time_episode"]
 
             print(f"Loaded weights filename: {weights_filename}")            
         except Exception as e:
