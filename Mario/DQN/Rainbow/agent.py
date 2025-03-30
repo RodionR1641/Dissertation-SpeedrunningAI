@@ -339,7 +339,7 @@ class Agent_Rainbow:
         self.target_model.eval()#evaluation mode, means it wont learn via gradient updates
 
         #Combines adaptive learning rates with weight decay regularisation for better generalisation
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
 
         # transition to store in memory
         self.transition = list()
@@ -364,15 +364,13 @@ class Agent_Rainbow:
 
     def record_video(self,run_name):
         self.env = RecordVideo(self.env,"videos/Rainbow_RND",name_prefix=f"{run_name}_{self.epoch}"
-                          ,episode_trigger=lambda x: x % 100 == 0)  # Record every 100th episode
+                          ,episode_trigger=lambda x: x % 1000 == 0)  # Record every 1000th episode
         
     #Noisy net way and not epsilon greedy, so just pick the action
     def get_action(self,state):
         
         #convert state into np_array for calculations, then make a tensor, then unsqueese to add batch dimension
-        state = torch.tensor(np.array(state), dtype=torch.float32) \
-                    .unsqueeze(0) \
-                    .to(self.model.device)
+        state = torch.tensor(np.array(state), dtype=torch.float32).unsqueeze(0).to(self.model.device)
         #use advantage function to calculate max action
         
         action = self.model(state).argmax().item() #self.model() returns the q value, then get the action associated with max value
@@ -385,6 +383,7 @@ class Agent_Rainbow:
     def sync_networks(self):
         if self.game_steps % self.sync_network_rate == 0 and self.game_steps > 0:
             self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
+            print("synced target and online networks")
 
     def step_env(self,action,intrinsic_reward=None):
         next_state,reward,done, info = self.env.step(action)
@@ -405,10 +404,6 @@ class Agent_Rainbow:
         
         #return both the total reward and true reward(extrinsic) for stats
         return next_state,reward,done, info
-
-    #set the tensorboard writer
-    def set_writer(self,writer):
-        self.writer = writer
 
 
     #update by gradient descent and calculate loss her
@@ -704,7 +699,9 @@ class Agent_Rainbow:
             self.num_completed_episodes = checkpoint["num_completed_episodes"]
             self.best_time_episode = checkpoint["best_time_episode"]
 
-            print(f"Loaded weights filename: {weights_filename}")            
+            print(f"Loaded weights filename: {weights_filename}, curr_epoch = {self.curr_epoch}, beta = {self.beta}, \
+                  game steps = {self.game_steps}")
+                   
         except Exception as e:
             print(f"No weights filename: {weights_filename}, using a random initialised model")
             print(f"Error: {e}")

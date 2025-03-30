@@ -126,7 +126,7 @@ class ReplayBuffer():
 
     def can_sample(self):
         #need enough varied data to sample, as we sample random data
-        return self.size >= (self.batch_size * 5)
+        return self.size >= (self.batch_size * 10)
 
 class PrioritisedMemory(ReplayBuffer):
     
@@ -345,9 +345,9 @@ class Agent_Rainbow_RND:
         self.target_rnd.eval()
 
         #Combines adaptive learning rates with weight decay regularisation for better generalisation
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
         #rnd optimizer is different. TODO: maybe a different learning rate 
-        self.optimizer_rnd = optim.AdamW(self.model_rnd.parameters(), lr=self.learning_rate)
+        self.optimizer_rnd = optim.Adam(self.model_rnd.parameters(), lr=self.learning_rate)
 
         # transition to store in memory
         self.transition = list()
@@ -375,15 +375,13 @@ class Agent_Rainbow_RND:
 
     def record_video(self,run_name):
         self.env = RecordVideo(self.env,"videos/Rainbow_RND",name_prefix=f"{run_name}_{self.epoch}"
-                          ,episode_trigger=lambda x: x % 100 == 0)  # Record every 100th episode
+                          ,episode_trigger=lambda x: x % 1000 == 0)  # Record every 1000th episode
 
     #Noisy net way and not epsilon greedy, so just pick the action
     def get_action(self,state):
         
         #convert state into np_array for calculations, then make a tensor, then unsqueese to add batch dimension
-        state = torch.tensor(np.array(state), dtype=torch.float32) \
-                    .unsqueeze(0) \
-                    .to(self.model.device)
+        state = torch.tensor(np.array(state), dtype=torch.float32).unsqueeze(0).to(self.model.device)
         #use advantage function to calculate max action
         
         action = self.model(state).argmax().item() #self.model() returns the q value, then get the action associated with max value
@@ -396,6 +394,8 @@ class Agent_Rainbow_RND:
     def sync_networks(self):
         if self.game_steps % self.sync_network_rate == 0 and self.game_steps > 0:
             self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
+            print("synced target and online networks")
+
 
     def step_env(self,action,intrinsic_reward=None):
         next_state,reward,done, info = self.env.step(action)
@@ -417,9 +417,6 @@ class Agent_Rainbow_RND:
         #return both the total reward and true reward(extrinsic) for stats
         return next_state,reward,extrinsic_reward,done, info
 
-    #set the tensorboard writer
-    def set_writer(self,writer):
-        self.writer = writer
     
     #update by gradient descent and calculate loss her
     def update_model(self):
@@ -554,7 +551,6 @@ class Agent_Rainbow_RND:
             intrinsic_reward = 0
             extrinsic_reward = 0
             ep_loss = 0
-            episodic_len = 0
             loss_count = 0
             loss = 0
             self.epoch = epoch
@@ -688,7 +684,7 @@ class Agent_Rainbow_RND:
         
         self.save_models(epoch=epoch)
         self.env.close()
-        self.writer.close()
+        wandb.finish()
 
     #run something on the machine, and see how we perform
     def test(self):
