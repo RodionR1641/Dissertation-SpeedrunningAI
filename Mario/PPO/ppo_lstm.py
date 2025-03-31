@@ -90,8 +90,8 @@ def save_models(num_updates,game_steps,num_completed_episodes,total_episodes,
     }
 
     print("...saving checkpoint...")
-    if not os.path.exists("models/ppo"):
-            os.makedirs("models/ppo",exist_ok=True)
+    if not os.path.exists("models/ppo_lstm"):
+            os.makedirs("models/ppo_lstm",exist_ok=True)
     torch.save(checkpoint,weights_filename)
 
 #if model doesnt exist, we just have a random model

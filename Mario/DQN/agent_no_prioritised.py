@@ -260,26 +260,27 @@ class Agent:
                     ep_loss += loss.item()
                     loss_count += 1
 
-                    #Track gradient norms for monitoring stability and see exploding or vanishing gradients
-                    total_norm = 0.0
-                    for p in self.model.parameters():
-                        if p.grad is not None:
-                            param_norm = p.grad.detach().data.norm(2)  # L2 norm here - get the gradient tensor, calculate the L2 norm
-                            #which is the square root of sum of squared values
-                            total_norm += param_norm.item() ** 2 # square each parameters norm and adds to total_norm
-                    total_norm = total_norm ** 0.5  #Overall gradient norm - square root of total
-                    
-                    #calculate per-layer gradient norms. Map layer names to their norms
-                    layer_norms = {
-                        name: p.grad.detach().norm(2).item() #map name and gradient norm of that layer
-                        for name, p in self.model.named_parameters() 
-                        if p.grad is not None
-                    }
-                    wandb.log({
-                        "game_steps": self.game_steps,
-                        "Gradient/gradient_norm_total": total_norm,
-                        **{f"Gradient/gradients/gradient_{name}": norm for name, norm in layer_norms.items()}
-                    })
+                    if self.game_steps % 500 == 0: #only track periodically for efficiency reasons
+                        #Track gradient norms for monitoring stability and see exploding or vanishing gradients
+                        total_norm = 0.0
+                        for p in self.model.parameters():
+                            if p.grad is not None:
+                                param_norm = p.grad.detach().data.norm(2)  # L2 norm here - get the gradient tensor, calculate the L2 norm
+                                #which is the square root of sum of squared values
+                                total_norm += param_norm.item() ** 2 # square each parameters norm and adds to total_norm
+                        total_norm = total_norm ** 0.5  #Overall gradient norm - square root of total
+                        
+                        #calculate per-layer gradient norms. Map layer names to their norms
+                        layer_norms = {
+                            name: p.grad.detach().norm(2).item() #map name and gradient norm of that layer
+                            for name, p in self.model.named_parameters() 
+                            if p.grad is not None
+                        }
+                        wandb.log({
+                            "game_steps": self.game_steps,
+                            "Gradient/gradient_norm_total": total_norm,
+                            **{f"Gradient/gradients/gradient_{name}": norm for name, norm in layer_norms.items()}
+                        })
                     #clip gradient after the graphs as the graphs need to show the real gradient
                     clip_grad_norm_(self.model.parameters(),10.0) #prevent exploding gradient
 
@@ -340,14 +341,18 @@ class Agent:
             if epoch % 1000 == 0:
                 self.save_models(epoch=epoch,weights_filename=f"models/dqn/dqn_iter_{epoch}.pth") #saving the models, may see where the good performance was and then it might tank -> can copy
                 #this in as the main model. Then can start retraining from this point if needed
-        
+
+            with torch.no_grad:
+                state_tensor = torch.as_tensor(state,torch.float32)
+                q_values = self.model(state_tensor)
 
             wandb.log({
                 "game_steps": self.game_steps,
                 "episodes": episodes,
                 "Charts/epochs": epoch,
                 "Charts/epsilon": self.epsilon,
-
+                "DQN/Avg_Q": q_values.mean().item(),
+                "DQN/Max_Q": q_values.max().item(),#highest q value predicted
                 "Charts/SPS": sps
             })
 

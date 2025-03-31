@@ -165,7 +165,7 @@ class PrioritisedMemory(ReplayBuffer):
             self.tree_ptr = (self.tree_ptr + 1) % self.max_size
         return transition
     
-    def sample_batch(self,beta=0.4):
+    def sample_batch(self,game_steps,beta=0.4):
         
         assert len(self) >= self.batch_size
         assert beta > 0 #beta controls for bias introduce by prioritised sampling. DQN tries to remove correlations of observations
@@ -184,6 +184,35 @@ class PrioritisedMemory(ReplayBuffer):
         #get the weight of each experience at this index
         weights = np.array([self.calculate_weight(index,beta) for index in indices])
 
+        if game_steps % 500 == 0:
+            
+            # Get priorities for THIS BATCH (not historical)
+            batch_priorities = np.array([self.sum_tree[idx] for idx in indices])
+            raw_priorities = batch_priorities ** (1/self.alpha)  # Reverse alpha scaling to get raw data given for priorities
+        
+            wandb.log({
+                "game_steps": game_steps,
+                # Priority stats (raw values, not alpha-scaled)
+                "PER/Priority_mean": np.mean(raw_priorities),
+                "PER/Priority_max": np.max(raw_priorities),
+                "PER/Priority_min": np.min(raw_priorities),
+                # IS weights
+                "PER/IS_Weight_mean": np.mean(weights),
+                "PER/IS_Weight_max": np.max(weights),
+                # Scatter plot (every 5K steps)
+                **({
+                    "PER/Priority_vs_Weight": wandb.plot.scatter(
+                        wandb.Table(
+                            columns=["Priority", "IS_Weight"],
+                            data=list(zip(raw_priorities, weights))
+                        ),
+                        x="Priority",
+                        y="IS_Weight",
+                        title="Priority vs. IS Weight"
+                    )
+                } if game_steps % 2000 == 0 else {})
+            }, commit=False)
+
         return dict(states=states,
             next_states=next_states,
             actions=actions,
@@ -192,7 +221,7 @@ class PrioritisedMemory(ReplayBuffer):
             weights=weights,
             indices=indices,)
     
-    def update_priorities(self, indices, priorities):
+    def update_priorities(self, indices, priorities,game_steps):
         #Update priorities of sampled transitions based on td error
         assert len(indices) == len(priorities)
 
@@ -204,6 +233,14 @@ class PrioritisedMemory(ReplayBuffer):
             self.min_tree[idx] = priority ** self.alpha
 
             self.max_priority = max(self.max_priority, priority)# update our max priority in case this is higher
+        
+        #track the current size of buffer and max priority
+        if game_steps % 500 == 0:
+            wandb.log({
+                "game_steps": game_steps,
+                "PER/Global_Max_Priority": self.max_priority,
+                "PER/Global_Active_Size": len(self),  # Current buffer size
+            },commit=False)
 
     #sample indices based on proportions 
     def sample_proportional(self):
@@ -422,7 +459,7 @@ class Agent_Rainbow_RND:
     def update_model(self):
         self.sync_networks()
 
-        samples = self.memory.sample_batch(self.beta)
+        samples = self.memory.sample_batch(self.game_steps,self.beta)
         weights = torch.tensor(samples["weights"].reshape(-1,1), dtype=torch.float32, device=self.device)
         indices = samples["indices"]
         
@@ -452,7 +489,8 @@ class Agent_Rainbow_RND:
         loss_rnd = torch.pow(intrinsic_predicted - intrinsic_true,2).sum()
         loss_rnd.backward()
 
-        self.plot_gradient_norms(self.model_rnd,rnd=True) #plot gradient norms for rnd
+        if self.game_steps % 500 == 0:
+            self.plot_gradient_norms(self.model_rnd,rnd=True) #plot gradient norms for rnd
 
         self.optimizer_rnd.step()
 
@@ -460,8 +498,8 @@ class Agent_Rainbow_RND:
         loss.backward()
         ep_loss = loss.item()
 
-
-        self.plot_gradient_norms(self.model) #plot gradient
+        if self.game_steps % 500 == 0:
+            self.plot_gradient_norms(self.model) #plot gradient
         #clip gradient after the graphs as the graphs need to show the real gradient
         clip_grad_norm_(self.model.parameters(),10.0) #prevent exploding gradient
 
@@ -470,7 +508,7 @@ class Agent_Rainbow_RND:
         #PER: update priorities
         loss_for_prior = element_loss.detach().cpu().numpy()
         new_priorities = loss_for_prior + self.prior_eps # a small number added at the end to make sure its never 0
-        self.memory.update_priorities(indices,new_priorities)
+        self.memory.update_priorities(indices,new_priorities,self.game_steps)
 
         # NoisyNet: reset noise
         self.model.reset_noise()
