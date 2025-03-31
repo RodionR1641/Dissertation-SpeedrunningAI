@@ -433,7 +433,7 @@ if __name__ == "__main__":
                         # Log by game_steps (fine-grained steps)
                         "Charts/episodic_return": episodic_reward,
                         "Charts/episodic_length": episodic_len,
-                    })  # Default x-axis is game_steps
+                    },commit=False)  # Default x-axis is game_steps
 
                     if item["flag_get"] == True:
                         num_completed_episodes += 1
@@ -444,7 +444,7 @@ if __name__ == "__main__":
                             "episodes": episodes,
                             "Charts/time_complete": item["time"],
                             "Charts/completion_rate": num_completed_episodes / total_episodes,
-                        })
+                        },commit=False)
 
                         if item["time"] < best_time_episode:
                             #find the previous file with this old best time
@@ -457,7 +457,7 @@ if __name__ == "__main__":
                             
                             #save this model that gave best time, if the model didnt exist then its just created
                             best_time_episode = item["time"]
-                            save_models(num_updates,game_steps,num_completed_episodes,total_episodes,best_time_episode
+                            save_models(update,game_steps,num_completed_episodes,total_episodes,best_time_episode
                                         ,weights_filename=new_filename)
         # use General Advantage Estimation(GAE) to do advantage estimation
 
@@ -623,26 +623,27 @@ if __name__ == "__main__":
                 optimizer.zero_grad()
                 loss.backward()
 
-                #Track gradient norms for monitoring stability and see exploding or vanishing gradients
-                total_norm = 0.0
-                for p in ac_model.parameters():
-                    if p.grad is not None:
-                        param_norm = p.grad.detach().data.norm(2)  # L2 norm here - get the gradient tensor, calculate the L2 norm
-                        #which is the square root of sum of squared values
-                        total_norm += param_norm.item() ** 2 # square each parameters norm and adds to total_norm
-                total_norm = total_norm ** 0.5  #Overall gradient norm - square root of total
+                if game_steps % 500 == 0:
+                    #Track gradient norms for monitoring stability and see exploding or vanishing gradients
+                    total_norm = 0.0
+                    for p in ac_model.parameters():
+                        if p.grad is not None:
+                            param_norm = p.grad.detach().data.norm(2)  # L2 norm here - get the gradient tensor, calculate the L2 norm
+                            #which is the square root of sum of squared values
+                            total_norm += param_norm.item() ** 2 # square each parameters norm and adds to total_norm
+                    total_norm = total_norm ** 0.5  #Overall gradient norm - square root of total
                 
-                #calculate per-layer gradient norms. Map layer names to their norms
-                layer_norms = {
-                    name: p.grad.detach().norm(2).item() #map name and gradient norm of that layer
-                    for name, p in ac_model.named_parameters() 
-                    if p.grad is not None
-                }
-                wandb.log({
-                    "game_steps": game_steps,
-                    "Gradient/gradient_norm_total": total_norm,
-                    **{f"Gradient/gradients/gradient_{name}": norm for name, norm in layer_norms.items()}
-                })
+                    #calculate per-layer gradient norms. Map layer names to their norms
+                    layer_norms = {
+                        name: p.grad.detach().norm(2).item() #map name and gradient norm of that layer
+                        for name, p in ac_model.named_parameters() 
+                        if p.grad is not None
+                    }
+                    wandb.log({
+                        "game_steps": game_steps,
+                        "Gradient/gradient_norm_total": total_norm,
+                        **{f"Gradient/gradients/gradient_{name}": norm for name, norm in layer_norms.items()}
+                    },commit=False)
 
                 # PPO implements global gradient clipping. We set up a maximum gradient norm. Prevent gradients from exploding
                 nn.utils.clip_grad_norm_(ac_model.parameters(), args.max_grad_norm)
@@ -673,7 +674,7 @@ if __name__ == "__main__":
         if update % 1000 == 0:
             save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,
                         total_episodes=total_episodes, best_time_episode=best_time_episode,
-                        weights_filename=f"models/ppo/ppo_iter_{update}.pt")
+                        weights_filename=f"models/ppo/ppo_iter_{update}.pth")
 
         #debug variable:explained variance - indicate if the value function is a good indicator of the returns
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()

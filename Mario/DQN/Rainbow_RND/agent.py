@@ -754,7 +754,7 @@ class Agent_Rainbow_RND:
                 self.save_models(epoch=epoch)
 
             if epoch % 1000 == 0:
-                self.save_models(epoch=epoch,weights_filename=f"models/rainbow_rnd/rainbow_rnd_iter_{epoch}.pt")
+                self.save_models(epoch=epoch,weights_filename=f"models/rainbow_rnd/rainbow_rnd_iter_{epoch}.pth")
                  #saving the models, may see where the good performance was and then it might tank -> can copy
                 #this in as the main model. Then can start retraining from this point if needed
         

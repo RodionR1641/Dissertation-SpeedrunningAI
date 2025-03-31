@@ -240,7 +240,7 @@ def train(env,device,args):
             agent.save_models(epoch=epoch) #save model every 100th epoch
 
         if epoch % 100 == 0:
-            agent.save_models(epoch=epoch,weights_filename=f"models/a2c/a2c_{epoch}_{agent.game_steps}.pt")
+            agent.save_models(epoch=epoch,weights_filename=f"models/a2c/a2c_{epoch}_{agent.game_steps}.pth")
     
     agent.save_models(epoch)
     env.close()
