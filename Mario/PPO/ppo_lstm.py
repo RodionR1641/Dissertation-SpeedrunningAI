@@ -157,7 +157,7 @@ def parse_args():
     parser.add_argument("--num-envs", type=int, default=8, #number of sub environments in a vector environment
         help="the number of parallel game environments")
     
-    parser.add_argument("--num-steps", type=int, default=128,
+    parser.add_argument("--num-steps", type=int, default=256,#higher value as using LSTM
         help="the number of steps to run in each environment per policy rollout") # control the number of data to collect for EACH policy rollout
     # total data = num_steps * num_envs . This is our BATCH_SIZE
     parser.add_argument("--anneal-lr", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,

@@ -163,9 +163,9 @@ def parse_args():
         help="the discount factor gamma")
     parser.add_argument("--gae-lambda", type=float, default=0.95,
         help="the lambda for the general advantage estimation")
-    parser.add_argument("--num-minibatches", type=int, default=4,
+    parser.add_argument("--num-minibatches", type=int, default=6, #keep minibatches 170(1024/6) steps, good for CNNs
         help="the number of mini-batches")
-    parser.add_argument("--update-epochs", type=int, default=4,
+    parser.add_argument("--update-epochs", type=int, default=8, #compensates for smaller minibatches
         help="the K epochs to update the policy") # ///
     parser.add_argument("--norm-adv", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="Toggles advantages normalization")
@@ -177,7 +177,7 @@ def parse_args():
         help="coefficient of the entropy")
     parser.add_argument("--vf-coef", type=float, default=0.5,
         help="coefficient of the value function")
-    parser.add_argument("--max-grad-norm", type=float, default=0.5,
+    parser.add_argument("--max-grad-norm", type=float, default=1.0,
         help="the maximum norm for the gradient clipping")
     parser.add_argument("--target-kl", type=float, default=0.05, #0.05 is quite lenient TODO: double check this
         help="the target KL divergence threshold")
