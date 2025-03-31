@@ -255,7 +255,7 @@ if __name__ == "__main__":
     curr_num_updates = 1
     num_completed_episodes = 0#how many games have ended in getting the flag
     total_episodes = 1 #total number of epochs/episodes of game playing that happened
-    best_time_episode = 1e9#very high number to start with
+    best_time_episode = 0 #lowest time remaining
 
     #load the model to continue training
     if load_models_flag == True:
@@ -439,7 +439,7 @@ if __name__ == "__main__":
                             "Charts/completion_rate": num_completed_episodes / total_episodes,
                         },commit=False)
 
-                        if item["time"] < best_time_episode:
+                        if item["time"] > best_time_episode:
                             #find the previous file with this old best time
                             filename = f"models/ppo_lstm/best_{best_time_episode}.pth"
                             new_filename = f"models/ppo_lstm/best_{item['time']}.pth"
@@ -617,7 +617,7 @@ if __name__ == "__main__":
             if loss_count > 0:
                     print(f"SPS = {sps}, Episode return = {episodic_reward} \
                             ,Episode len = {episodic_len}, Episode loss = {loss_total}, Average loss = {loss_total/loss_count} \
-                            ,Epoch = {epoch},Time Steps = {game_steps}, Learning Rate ={optimizer.param_groups[0]['lr']}")
+                            ,Update = {update},Time Steps = {game_steps}, Learning Rate ={optimizer.param_groups[0]['lr']}")
             print("")
         if update % 10 == 0:
             save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,
