@@ -241,26 +241,32 @@ class Agent:
 
 
                     qsa_b = self.model(states)  # Shape: (batch_size, n_actions) as network estimates q value for all actions. so have rows of q values for each action
-                    qsa_b = qsa_b[np.arange(self.batch_size), actions.squeeze()] #action contains the actual actions taken, remove extra batch dimension via squeeze
-                    # then generate an array of batch indices. So select q value of each action taken
+                    qsa_b = qsa_b[np.arange(self.batch_size), actions.squeeze()] #action contains the actual actions taken,
+                    # remove extra batch dimension via squeeze then generate an array of batch indices.
+                    # So select q value of each action taken
 
                     # DDQN - Compute target Q-values from the online network, then use the 
-                    # target network to evaluate
-                    best_next_actions = self.model(next_states).argmax(dim=1) #get the best action using max of dim=1(which are the actions). argmax return indices
-                    #this feeds the next_states into target_model and then selects its own values of the actions that online model chose
-                    next_qsa_b = self.target_model(next_states).detach()[np.arange(self.batch_size),best_next_actions]
-                    
-                    # dqn = r + gamma * max Q(s,a)
-                    # ddqn = r + gamma * online_network(s',argmax target_network_Q(s',a'))
-                    #detach -> important as we dont want to back propagate on target network
-                    target_b = (rewards + self.gamma * next_qsa_b * (1 - dones.float()) ) #1-dones.float() -> stop propagating when finished episode
+                    # target network to evaluate. No gradient computation here
+                    with torch.no_grad():
+                        best_next_actions = self.model(next_states).argmax(dim=1) #get the best action using max of dim=1
+                        #(which are the actions). argmax return indices this feeds the next_states into target_model 
+                        # and then selects its own values of the actions that online model chose
+                        next_qsa_b = self.target_model(next_states).detach()[np.arange(self.batch_size),best_next_actions]
+                        
+                        # dqn = r + gamma * max Q(s,a)
+                        # ddqn = r + gamma * online_network(s',argmax target_network_Q(s',a'))
+                        #detach -> important as we dont want to back propagate on target network
+                        target_b = (rewards + self.gamma * next_qsa_b * (1 - dones.float()) )
+                         #1-dones.float() -> stop propagating when finished episode
                     
                     loss = self.loss(qsa_b,target_b)
+                    td_errors = (target_b - qsa_b).abs() #absolute TD error
+
                     loss.backward()
                     ep_loss += loss.item()
                     loss_count += 1
 
-                    if self.game_steps % 500 == 0: #only track periodically for efficiency reasons
+                    if self.game_steps % 1 == 0: #only track periodically for efficiency reasons
                         #Track gradient norms for monitoring stability and see exploding or vanishing gradients
                         total_norm = 0.0
                         for p in self.model.parameters():
@@ -276,11 +282,27 @@ class Agent:
                             for name, p in self.model.named_parameters() 
                             if p.grad is not None
                         }
-                        wandb.log({
-                            "game_steps": self.game_steps,
-                            "Gradient/gradient_norm_total": total_norm,
-                            **{f"Gradient/gradients/gradient_{name}": norm for name, norm in layer_norms.items()}
-                        })
+                        
+                        with torch.no_grad():
+                            # Base metrics
+                            log_data = {
+                                "game_steps": self.game_steps,
+                                "DQN/TD_Error_Avg": td_errors.mean().item(),
+                                "DQN/TD_Error_Max": td_errors.max().item(),
+                                "DQN/Q_Value_Avg": qsa_b.mean().item(),
+                                "DQN/Q_Value_Max": qsa_b.max().item(),
+                                "Gradient/gradient_norm_total": total_norm,
+                                **{f"Gradient/gradients/gradient_{name}": norm for name, norm in layer_norms.items()}
+                            }
+
+                            # Action-specific Q-values (less frequent to reduce overhead)
+                            if self.game_steps % 1 == 0:  # Every 5x gradient logging
+                                rand_state = states[0:1]  # Use already-loaded state
+                                action_qs = self.model(rand_state)
+                                for action in range(action_qs.shape[1]):
+                                    log_data[f"DQN_Action/Q_Action_{action}"] = action_qs[0, action].item()
+
+                        wandb.log(log_data, commit=False)
                     #clip gradient after the graphs as the graphs need to show the real gradient
                     clip_grad_norm_(self.model.parameters(),10.0) #prevent exploding gradient
 
@@ -310,7 +332,7 @@ class Agent:
                             "episodes": episodes,
                             "Charts/time_complete": info["time"],
                             "Charts/completion_rate": self.num_completed_episodes / episodes,
-                        })
+                        },commit=False)
 
                         if info["time"] < self.best_time_episode:
                             #find the previous file with this old best time
@@ -342,17 +364,12 @@ class Agent:
                 self.save_models(epoch=epoch,weights_filename=f"models/dqn/dqn_iter_{epoch}.pth") #saving the models, may see where the good performance was and then it might tank -> can copy
                 #this in as the main model. Then can start retraining from this point if needed
 
-            with torch.no_grad:
-                state_tensor = torch.as_tensor(state,torch.float32)
-                q_values = self.model(state_tensor)
 
             wandb.log({
                 "game_steps": self.game_steps,
                 "episodes": episodes,
                 "Charts/epochs": epoch,
                 "Charts/epsilon": self.epsilon,
-                "DQN/Avg_Q": q_values.mean().item(),
-                "DQN/Max_Q": q_values.max().item(),#highest q value predicted
                 "Charts/SPS": sps
             })
 

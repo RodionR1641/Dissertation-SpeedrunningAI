@@ -490,11 +490,51 @@ class Agent_Rainbow:
                 for name, p in self.model.named_parameters() 
                 if p.grad is not None
             }
-            wandb.log({
-                "game_steps": self.game_steps,
-                "Gradient/gradient_norm_total": total_norm,
-                **{f"Gradient/gradients/gradient_{name}": norm for name, norm in layer_norms.items()}
-            })
+
+            with torch.no_grad():
+                dist = self.model.dist(samples["states"])
+                probs = torch.softmax(dist[range(self.batch_size), samples["actions"] ], dim=-1)
+                expected_q = (probs * self.support).sum(-1)
+
+                if self.use_n_step:
+                    n_step_samples = self.n_memory.sample_batch_idxs(indices)
+                    n_step_gamma = self.gamma ** self.n_step
+                    n_step_td = self.compute_dqn_loss(n_step_samples, n_step_gamma)
+
+                log_data = {
+                    "game_steps": self.game_steps,
+                    # Gradient metrics
+                    "Gradient/gradient_norm_total": total_norm ** 0.5,
+                    **{f"Gradient/gradients/gradient_{name}": norm for name, norm in layer_norms.items()},
+                    
+                    # Distributional RL
+                    "Rainbow/Expected_Q_Avg": expected_q.mean().item(),
+                    "Rainbow/Atoms_Std": probs.std(dim=-1).mean().item(),
+                    "Rainbow/Expected_Q_Std": expected_q.std().item(),
+                    "Rainbow/Atom_Entropy": -(action_probs * torch.log(action_probs + 1e-6)).sum(-1).mean().item(),
+
+                    # N-step (if used)
+                    "Rainbow/N_Step_Gamma": self.gamma ** self.n_step if self.use_n_step else 0,
+                    "Rainbow/N_Step_TD_Avg": n_step_td.mean().item(),
+                    "Rainbow/N_Step_TD_Ratio": n_step_td.mean().item() / element_loss.mean().item()
+                }
+                #noisy net data
+                noise_magnitudes = {
+                    name: param.noise_std 
+                    for name, param in self.model.named_parameters() 
+                    if hasattr(param, 'noise_std')
+                }
+                for mag,name in noise_magnitudes:
+                    log_data[f"Noisy/{name}"] = mag 
+
+                # Action distribution (less frequent)
+                if self.game_steps % 2500 == 0:
+                    action_probs = torch.softmax(self.model(samples["states"][0:1]), dim=1).squeeze()
+                    for action in range(self.nb_actions):
+                        log_data[f"Rainbow/Action_{action}_Prob"] = action_probs[action].item()
+                
+            wandb.log(log_data, commit=False)
+        
         #clip gradient after the graphs as the graphs need to show the real gradient
         clip_grad_norm_(self.model.parameters(),10.0) #prevent exploding gradient
 

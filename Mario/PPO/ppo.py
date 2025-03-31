@@ -653,6 +653,9 @@ if __name__ == "__main__":
             # we implement it at batch level, can also do at minibatch level                
             if args.target_kl is not None:
                 if approx_kl > args.target_kl:
+                    print("")
+                    print(f"approx_kl = {approx_kl}. approx_kl > target_kl {args.target_kl}, so EARLY STOPPING APPLIED NOW!")
+                    print("")
                     break
         
         #logged output saved in wandb 
