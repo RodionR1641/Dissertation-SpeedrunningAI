@@ -89,7 +89,7 @@ def make_env(gym_id,seed,environment_num,cap_video,run_name):
         if(cap_video):
             if environment_num == 0:
                 env = RecordVideo(env,"videos/A2C",name_prefix=f"{run_name}" 
-                          ,episode_trigger=lambda x: x % 100 == 0)  # Record every 100th episode
+                          ,episode_trigger=lambda x: x % 500 == 0)  # Record every 500th episode
         return env    
     return one_env
 

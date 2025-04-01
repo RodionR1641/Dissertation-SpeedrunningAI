@@ -149,7 +149,7 @@ def parse_args():
         help="the wandb's project name")
     parser.add_argument("--wandb-entity", type=str, default=None,
         help="the entity (team) of wandb's project")
-    parser.add_argument("--capture-video", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    parser.add_argument("--capture-video", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="weather to capture videos of the agent performances (check out `videos` folder)")
 
     
@@ -201,7 +201,7 @@ def make_env(gym_id,seed,environment_num,cap_video,run_name):
         if(cap_video):
             if environment_num == 0:
                 env = RecordVideo(env,"videos/PPO_LSTM",name_prefix=f"{run_name}" 
-                          ,episode_trigger=lambda x: x % 100 == 0)  # Record every 100th episode
+                          ,episode_trigger=lambda x: x % 500 == 0)  # Record every 500th episode
         return env    
     return one_env
 

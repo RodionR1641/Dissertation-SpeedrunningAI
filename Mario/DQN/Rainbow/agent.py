@@ -401,7 +401,7 @@ class Agent_Rainbow:
 
     def record_video(self,run_name):
         self.env = RecordVideo(self.env,"videos/Rainbow_RND",name_prefix=f"{run_name}_{self.epoch}"
-                          ,episode_trigger=lambda x: x % 1000 == 0)  # Record every 1000th episode
+                          ,episode_trigger=lambda x: x % 500 == 0)  # Record every 500th episode
         
     #Noisy net way and not epsilon greedy, so just pick the action
     def get_action(self,state):

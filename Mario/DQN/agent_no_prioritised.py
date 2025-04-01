@@ -162,7 +162,7 @@ class Agent:
 
     def record_video(self,run_name):
         self.env = RecordVideo(self.env,"videos/DQN",name_prefix=f"{run_name}_{self.epoch}"
-                          ,episode_trigger=lambda x: x % 1000 == 0)  # Record every 1000th episode
+                          ,episode_trigger=lambda x: x % 500 == 0)  # Record every 500th episode
 
     #state is image of our environment
     def get_action(self,state,test=False):
