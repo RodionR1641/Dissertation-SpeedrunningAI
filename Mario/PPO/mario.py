@@ -28,6 +28,7 @@ class Mario(gym.Wrapper):
         #take random number of NOOPs on reset. overwrite reset function, sample random number of noops between 0 and 30, execute the noop and then return
         # add stochasticity to environment
         env = NoopResetEnv(env=env,noop_max=30,rng_gen=self.random_gen)
+        env = CustomReward(env=env) #rewards for completing level and score
         # skip 4 frames by default, repeat agents actions for those frames. Done for efficiency. Take the max pixel values over last 2 frames
         env = MaxAndSkipEnv(env=env,skip=4)
         # wrapper treats every end of life as end of that episode. So, if any life is lost episode ends. But reset is called only if lives are exhausted
@@ -167,4 +168,30 @@ class EpisodicLifeEnv(gym.Wrapper):
             if done:
                 obs = self.env.reset(**kwargs)
         self.lives = self.env.unwrapped._life  # type: ignore[attr-defined]
+        return obs
+    
+
+class CustomReward(gym.Wrapper):
+    def __init__(self, env=None):
+        super(CustomReward, self).__init__(env)
+        self.curr_score = 0
+
+    def step(self, action):
+        state, reward, done, info = self.env.step(action)
+        reward += (info["score"] - self.curr_score) / 40.0 #score can help the agent move towards right directions and 
+        #explore, also finishing the level gives a score so more incentive to finish level and in shorter time
+        self.curr_score = info["score"]
+        if done:
+            if info["flag_get"]:
+                reward += 50
+            else:
+                reward -= 50#this is on top of the death penalty
+
+        #scale the reward to be not too big
+        return state, reward / 10.0, done, info
+
+    def reset(self,**kwargs):
+        self.curr_score = 0
+
+        obs = self.env.reset(**kwargs)
         return obs
