@@ -17,17 +17,20 @@ class MarioNet(nn.Module):
             nn.ReLU(),
             nn.Flatten(),
             #linear layer that takes input of the flattened features
-            layer_init(nn.Linear(64*7*7, 1024)), # get reduced into a 7x7 image with 64 channels 
+            layer_init(nn.Linear(64*7*7, 512)), # get reduced into a 7x7 image with 64 channels 
             nn.ReLU(),
         )
 
-        self.lstm = nn.LSTM(1024,128)
+        self.lstm = nn.LSTM(512,128)
         for name,param in self.lstm.named_parameters():
             if "bias" in name:
                 nn.init.constant_(param,0)
             elif "weight" in name:
                 nn.init.orthogonal_(param,1.0)
 
+        self.actor = layer_init(nn.Linear(128, envs.single_action_space.n), std=0.01)
+        self.critic = layer_init(nn.Linear(128, 1), std=1)  
+        """
         self.critic = nn.Sequential(
             layer_init(nn.Linear(128,128)), #input shape to first layer is product of obesrvation space
             nn.ReLU(),
@@ -39,7 +42,7 @@ class MarioNet(nn.Module):
             nn.ReLU(),
             layer_init(nn.Linear(128,envs.single_action_space.n) , std=0.01),
         )
-        
+        """
         self.device = device
         self.to(device)
     

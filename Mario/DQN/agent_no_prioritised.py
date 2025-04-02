@@ -266,7 +266,7 @@ class Agent:
                     ep_loss += loss.item()
                     loss_count += 1
 
-                    if self.game_steps % 1 == 0: #only track periodically for efficiency reasons
+                    if self.game_steps % 500 == 0: #only track periodically for efficiency reasons
                         #Track gradient norms for monitoring stability and see exploding or vanishing gradients
                         total_norm = 0.0
                         for p in self.model.parameters():
@@ -296,7 +296,7 @@ class Agent:
                             }
 
                             # Action-specific Q-values (less frequent to reduce overhead)
-                            if self.game_steps % 1 == 0:  # Every 5x gradient logging
+                            if self.game_steps % 2500 == 0:  # Every 5x gradient logging
                                 rand_state = states[0:1]  # Use already-loaded state
                                 action_qs = self.model(rand_state)
                                 for action in range(action_qs.shape[1]):

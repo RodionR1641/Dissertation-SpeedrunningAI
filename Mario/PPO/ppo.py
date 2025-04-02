@@ -165,7 +165,7 @@ def parse_args():
         help="the discount factor gamma")
     parser.add_argument("--gae-lambda", type=float, default=1.0,  #0.95,
         help="the lambda for the general advantage estimation")
-    parser.add_argument("--num-minibatches", type=int, default=16, #keep minibatches 170(1024/6) steps, good for CNNs
+    parser.add_argument("--num-minibatches", type=int, default=8, #keep minibatches 170(1024/6) steps, good for CNNs
         help="the number of mini-batches")
     parser.add_argument("--update-epochs", type=int, default=10,
         help="the K epochs to update the policy") # ///
