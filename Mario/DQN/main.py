@@ -209,7 +209,7 @@ if __name__ == "__main__":
                     entity=args.wandb_entity,
                     config=vars(args),
                     name=run_name,
-                    monitor_gym=True, # Monitors videos, but for old gym. Doesn't work now
+                    monitor_gym=False, # Monitors videos, but for old gym. Doesn't work now
                     save_code=True
                 )
                 print(f"Resumed existing run with ID: {run_id}")

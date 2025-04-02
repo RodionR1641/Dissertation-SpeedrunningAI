@@ -247,16 +247,16 @@ class Agent:
 
                     # DDQN - Compute target Q-values from the online network, then use the 
                     # target network to evaluate. No gradient computation here
-                    with torch.no_grad():
-                        best_next_actions = self.model(next_states).argmax(dim=1) #get the best action using max of dim=1
-                        #(which are the actions). argmax return indices this feeds the next_states into target_model 
-                        # and then selects its own values of the actions that online model chose
-                        next_qsa_b = self.target_model(next_states).detach()[np.arange(self.batch_size),best_next_actions]
-                        
-                        # dqn = r + gamma * max Q(s,a)
-                        # ddqn = r + gamma * online_network(s',argmax target_network_Q(s',a'))
-                        #detach -> important as we dont want to back propagate on target network
-                        target_b = (rewards + self.gamma * next_qsa_b * (1 - dones.float()) )
+                    
+                    best_next_actions = self.model(next_states).argmax(dim=1) #get the best action using max of dim=1
+                    #(which are the actions). argmax return indices this feeds the next_states into target_model 
+                    # and then selects its own values of the actions that online model chose
+                    next_qsa_b = self.target_model(next_states).detach()[np.arange(self.batch_size),best_next_actions]
+                    
+                    # dqn = r + gamma * max Q(s,a)
+                    # ddqn = r + gamma * online_network(s',argmax target_network_Q(s',a'))
+                    #detach -> important as we dont want to back propagate on target network
+                    target_b = (rewards + self.gamma * next_qsa_b * (1 - dones.float()) )
                          #1-dones.float() -> stop propagating when finished episode
                     
                     loss = self.loss(qsa_b,target_b)
