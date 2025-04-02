@@ -109,12 +109,17 @@ if __name__ == "__main__":
 
     #parser args setup and seed
     use_vit = args.use_vit
-    environment = DQN_Mario(use_vit=use_vit,seed=args.seed)
+
+    agent_type = args.agent_type
+    
+    if agent_type == 2:
+        environment = DQN_Mario(use_vit=use_vit,seed=args.seed,rnd=True)
+    else:
+        environment = DQN_Mario(use_vit=use_vit,seed=args.seed)
     num_actions = environment.action_num
     testing = args.testing
     resume_run = args.resume_run
     seed_run()
-    agent_type = args.agent_type
 
     #choose which agent type to train
 

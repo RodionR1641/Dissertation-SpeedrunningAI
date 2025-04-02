@@ -31,6 +31,7 @@ class DQN_Mario(gym.Wrapper):
         # add stochasticity to environment
         env = NoopResetEnv(env=env,noop_max=30,rng_gen=self.random_gen)
 
+        env = CustomReward(env=env)
         # skip 4 frames by default, repeat agents actions for those frames.
         # Done for efficiency. Take the max pixel values over last 2 frames
         
@@ -196,3 +197,29 @@ class StickyActionEnv(gym.Wrapper):
     def reset(self):
         self.last_action = 0
         return self.env.reset()
+
+# add a custom reward for getting some score and also for getting the flag(completing the level)
+class CustomReward(gym.Wrapper):
+    def __init__(self, env=None):
+        super(CustomReward, self).__init__(env)
+        self.curr_score = 0
+
+    def step(self, action):
+        state, reward, done, info = self.env.step(action)
+        reward += (info["score"] - self.curr_score) / 40.0 #score can help the agent move towards right directions and 
+        #explore, also finishing the level gives a score so more incentive to finish level and in shorter time
+        self.curr_score = info["score"]
+        if done:
+            if info["flag_get"]:
+                reward += 50
+            else:
+                reward -= 50#this is on top of the death penalty
+
+        #scale the reward to be not too big
+        return state, reward / 10.0, done, info
+
+    def reset(self,**kwargs):
+        self.curr_score = 0
+
+        obs = self.env.reset(**kwargs)
+        return obs

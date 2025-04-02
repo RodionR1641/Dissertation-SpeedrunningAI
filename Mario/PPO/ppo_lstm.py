@@ -73,7 +73,7 @@ def test(env, device):
     env.close()
 
 #these models take a while to train, want to save it and reload on start. Save both target and online for exact reproducibility
-def save_models(num_updates,game_steps,num_completed_episodes,total_episodes,
+def save_models(num_updates,game_steps,num_completed_episodes,total_episodes,best_time_episode,
                  weights_filename="models/ppo_lstm/ppo_lstm_latest.pth"):
     #state_dict() -> dictionary of the states/weights in a given model
     # we override nn.Module, so this can be done
