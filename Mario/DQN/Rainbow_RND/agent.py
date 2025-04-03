@@ -4,7 +4,7 @@ import os
 import torch.optim as optim
 import numpy as np
 import time
-from Rainbow_RND.rainbow_model import MarioNet, RND_model
+from Rainbow_RND.rainbow_model import MarioNet, RND_model, NoisyLinear
 from model_mobile_vit import MarioNet_ViT
 from collections import deque
 from segment_tree import MinSegmentTree, SumSegmentTree
@@ -490,6 +490,7 @@ class Agent_Rainbow_RND:
         loss_rnd.backward()
 
         if self.game_steps % 500 == 0:
+
             self.plot_gradient_norms(self.model_rnd,rnd=True) #plot gradient norms for rnd
 
         self.optimizer_rnd.step()
@@ -498,7 +499,57 @@ class Agent_Rainbow_RND:
         loss.backward()
         ep_loss = loss.item()
 
-        if self.game_steps % 500 == 0:
+        if self.game_steps % 1 == 0:
+
+            with torch.no_grad():
+                states = torch.tensor(samples["states"], dtype=torch.float32, device=self.device)
+                actions = torch.tensor(samples["actions"], dtype=torch.long, device=self.device) #long tensor for actions
+                dist = self.model.dist(states)
+                probs = torch.softmax(dist[range(self.batch_size), actions ], dim=-1) #softmax so easy to compare the distribution, all add up to 1 
+                expected_q = (probs * self.support).sum(-1)
+
+                if self.use_n_step:
+                    n_step_samples = self.n_memory.sample_batch_idxs(indices)
+                    n_step_gamma = self.gamma ** self.n_step
+                    n_step_td = self.compute_dqn_loss(n_step_samples, n_step_gamma)
+
+                log_data = {
+                    "game_steps": self.game_steps,
+                    
+                    # Distributional RL
+                    "Rainbow/Expected_Q_Avg": expected_q.mean().item(),
+                    "Rainbow/Atoms_Std": probs.std(dim=-1).mean().item(),
+                    "Rainbow/Expected_Q_Std": expected_q.std().item(),
+
+                    # N-step (if used)
+                    "Rainbow/N_Step_Gamma": self.gamma ** self.n_step if self.use_n_step else 0,
+                    "Rainbow/N_Step_TD_Avg": n_step_td.mean().item(),
+                    "Rainbow/N_Step_TD_Ratio": n_step_td.mean().item() / element_loss.mean().item()
+                }
+                #noisy net data
+                for name, module in self.model.named_modules():
+                    if isinstance(module, NoisyLinear):
+                        # Calculate current effective noise magnitude
+                        weight_noise = (module.weight_sigma * module.weight_epsilon).std().item()
+                        bias_noise = (module.bias_sigma * module.bias_epsilon).std().item()
+                        
+                        log_data[f"Noisy/{name}.weight"] = weight_noise
+                        log_data[f"Noisy/{name}.bias"] = bias_noise
+                        log_data[f"Noisy/{name}.weight_mu"] = module.weight_mu.abs().mean().item()
+                        log_data[f"Noisy/{name}.bias_mu"] = module.bias_mu.abs().mean().item()
+
+
+                # Action distribution (less frequent)
+                if self.game_steps % 1 == 0:
+                    action_probs = torch.softmax(self.model(states), dim=1).squeeze()
+                    for action in range(self.nb_actions):
+                        log_data[f"Rainbow/Action_{action}_Prob"] = action_probs[action].mean().item() 
+                        #plot the softmax probability for each action for a random state
+                        #could help see how confident the network is
+                    #log the entropy
+                    log_data["Rainbow/Atom_Entropy"] = -(action_probs * torch.log(action_probs + 1e-6)).sum(-1).mean().item(),
+            wandb.log(log_data, commit=False)
+
             self.plot_gradient_norms(self.model) #plot gradient
         #clip gradient after the graphs as the graphs need to show the real gradient
         clip_grad_norm_(self.model.parameters(),10.0) #prevent exploding gradient
@@ -538,13 +589,13 @@ class Agent_Rainbow_RND:
                 "game_steps": self.game_steps,
                 "Gradient_rnd/gradient_norm_total": total_norm,
                 **{f"Gradient_rnd/gradients/gradient_{name}": norm for name, norm in layer_norms.items()}
-            })
+            },commit=False)
         else:
             wandb.log({
                 "game_steps": self.game_steps,
                 "Gradient/gradient_norm_total": total_norm,
                 **{f"Gradient/gradients/gradient_{name}": norm for name, norm in layer_norms.items()}
-            })
+            },commit=False)
 
     #return categorical dqn loss
     def compute_dqn_loss(self,samples,gamma):
@@ -685,7 +736,7 @@ class Agent_Rainbow_RND:
                         # Log by game_steps (fine-grained steps)
                         "Charts/episodic_return": episodic_reward,
                         "Charts/episodic_length": episodic_len,
-                    })  # Default x-axis is game_steps
+                    },commit=False)  # Default x-axis is game_steps
 
                     if info["flag_get"] == True:
                         self.num_completed_episodes += 1
@@ -696,7 +747,7 @@ class Agent_Rainbow_RND:
                             "episodes": episodes,
                             "Charts/time_complete": info["time"],
                             "Charts/completion_rate": self.num_completed_episodes / episodes,
-                        })
+                        },commit=False)
 
                         if info["time"] < self.best_time_episode:
                             #find the previous file with this old best time

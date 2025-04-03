@@ -5,6 +5,7 @@ import torch.optim as optim
 import numpy as np
 import time
 from Rainbow.rainbow_model import MarioNet
+from Rainbow.rainbow_model import NoisyLinear
 from model_mobile_vit import MarioNet_ViT
 from collections import deque
 from segment_tree import MinSegmentTree, SumSegmentTree
@@ -474,7 +475,7 @@ class Agent_Rainbow:
         loss.backward()
         ep_loss = loss.item()
 
-        if self.game_steps % 500 == 0:
+        if self.game_steps % 1 == 0:
             #Track gradient norms for monitoring stability and see exploding or vanishing gradients
             total_norm = 0.0
             for p in self.model.parameters():
@@ -492,8 +493,10 @@ class Agent_Rainbow:
             }
 
             with torch.no_grad():
-                dist = self.model.dist(samples["states"])
-                probs = torch.softmax(dist[range(self.batch_size), samples["actions"] ], dim=-1)
+                states = torch.tensor(samples["states"], dtype=torch.float32, device=self.device)
+                actions = torch.tensor(samples["actions"], dtype=torch.long, device=self.device) #long tensor for actions
+                dist = self.model.dist(states)
+                probs = torch.softmax(dist[range(self.batch_size), actions ], dim=-1) #softmax so easy to compare the distribution, all add up to 1 
                 expected_q = (probs * self.support).sum(-1)
 
                 if self.use_n_step:
@@ -511,7 +514,6 @@ class Agent_Rainbow:
                     "Rainbow/Expected_Q_Avg": expected_q.mean().item(),
                     "Rainbow/Atoms_Std": probs.std(dim=-1).mean().item(),
                     "Rainbow/Expected_Q_Std": expected_q.std().item(),
-                    "Rainbow/Atom_Entropy": -(action_probs * torch.log(action_probs + 1e-6)).sum(-1).mean().item(),
 
                     # N-step (if used)
                     "Rainbow/N_Step_Gamma": self.gamma ** self.n_step if self.use_n_step else 0,
@@ -519,20 +521,27 @@ class Agent_Rainbow:
                     "Rainbow/N_Step_TD_Ratio": n_step_td.mean().item() / element_loss.mean().item()
                 }
                 #noisy net data
-                noise_magnitudes = {
-                    name: param.noise_std 
-                    for name, param in self.model.named_parameters() 
-                    if hasattr(param, 'noise_std')
-                }
-                for mag,name in noise_magnitudes:
-                    log_data[f"Noisy/{name}"] = mag 
+                for name, module in self.model.named_modules():
+                    if isinstance(module, NoisyLinear):
+                        # Calculate current effective noise magnitude
+                        weight_noise = (module.weight_sigma * module.weight_epsilon).std().item()
+                        bias_noise = (module.bias_sigma * module.bias_epsilon).std().item()
+                        
+                        log_data[f"Noisy/{name}.weight"] = weight_noise
+                        log_data[f"Noisy/{name}.bias"] = bias_noise
+                        log_data[f"Noisy/{name}.weight_mu"] = module.weight_mu.abs().mean().item()
+                        log_data[f"Noisy/{name}.bias_mu"] = module.bias_mu.abs().mean().item()
+
 
                 # Action distribution (less frequent)
-                if self.game_steps % 2500 == 0:
-                    action_probs = torch.softmax(self.model(samples["states"][0:1]), dim=1).squeeze()
+                if self.game_steps % 1 == 0:
+                    action_probs = torch.softmax(self.model(states), dim=1).squeeze()
                     for action in range(self.nb_actions):
-                        log_data[f"Rainbow/Action_{action}_Prob"] = action_probs[action].item()
-                
+                        log_data[f"Rainbow/Action_{action}_Prob"] = action_probs[action].mean().item() 
+                        #plot the softmax probability for each action for a random state
+                        #could help see how confident the network is
+                    #log the entropy
+                    log_data["Rainbow/Atom_Entropy"] = -(action_probs * torch.log(action_probs + 1e-6)).sum(-1).mean().item(),
             wandb.log(log_data, commit=False)
         
         #clip gradient after the graphs as the graphs need to show the real gradient
@@ -604,9 +613,11 @@ class Agent_Rainbow:
                 0, (u + offset).view(-1), (next_dist * (b - l.float())).view(-1)
             )
 
-        dist = self.model.dist(states)
-        log = torch.log(dist[range(self.batch_size), actions])
-        element_loss = -(proj_dist * log).sum(1) #different loss function compared to MSE
+        dist = self.model.dist(states) #for each state, predict a prob distribution over possible returns, shape [batch_size,num_actions,num_atoms]
+        log = torch.log(dist[range(self.batch_size), actions]) #select the prob distributions only for the actions actually taken, then take a log
+        element_loss = -(proj_dist * log).sum(1) #multiply the target distribution with what model actually predicted. proj_dist is the
+        # mathematically correct distribution after seeing the reward. Loss measures how suprised we are, so the further off the predictions
+        # the worse the loss.then sum it up to get a cross entropy loss per experience. loss is small when predictions match targets
 
         return element_loss
 
