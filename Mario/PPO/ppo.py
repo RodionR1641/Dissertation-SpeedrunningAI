@@ -115,7 +115,6 @@ def load_models(weights_filename="models/ppo/ppo_latest.pth"):
 
 
 def parse_args():
-    # fmt: off
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp-name", type=str, default="PPO_experiment",
         help="the name of this experiment")

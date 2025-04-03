@@ -213,15 +213,18 @@ class PrioritisedMemory(ReplayBuffer):
 
             },commit=False)    
 
+            min_p, max_p = np.min(weights), np.max(weights)
+            bins = np.linspace(min_p, max_p, 50)  # 50 evenly spaced bins
+
             wandb.log({
                 "PER_Batch/IS_Weight_Hist": wandb.Histogram(
-                    weights,
-                    num_bins=50
+                    np_histogram=np.histogram(weights, bins=bins)
                 )
-            },commit=False)
+            }, commit=False)
         
         if game_steps % 10000 == 0: #10,000
             full_stats = self.get_priority_stats(full_buffer=True)
+            priorities = full_stats['raw_priorities']
 
             wandb.log({
                 "game_steps": game_steps,
@@ -230,17 +233,20 @@ class PrioritisedMemory(ReplayBuffer):
                 "PER_Full/Priority_Min": full_stats['min'],
                 "PER_Full/PriorityP90": full_stats['p90'],
                 "PER_Full/Priority_Spread": full_stats['max'] / (full_stats['mean'] + 1e-6), #how much max and min differ
-                "PER_Full/HighPriority_Ratio": np.sum(full_stats['raw_priorities'] > full_stats['p90'])/len(self), #percentage of 
+                "PER_Full/HighPriority_Ratio": np.sum(priorities > full_stats['p90'])/len(self), #percentage of 
                 #priorities falling outside the 90% range
                 "PER_Full/Global_Active_Size": len(self),  # Current buffer size
 
             },commit=False)  
+
+            min_p, max_p = np.min(priorities), np.max(priorities)
+            bins = np.linspace(min_p, max_p, 50)  # 50 evenly spaced bins
+
             wandb.log({
                 "PER_Full/Priority_Hist": wandb.Histogram(
-                    full_stats['raw_priorities'],
-                    num_bins=50
+                    np_histogram=np.histogram(priorities, bins=bins)
                 )
-            },commit=False)
+            }, commit=False)
         
         return dict(states=states,
             next_states=next_states,
@@ -349,16 +355,18 @@ class Agent_Rainbow_RND:
                  learning_rate=1e-5,
                  gamma=0.99,
                  sync_network_rate=1_000,
+                 beta_decay_steps = 10_000_000, #the steps at which beta goes from initial value to 1.0
                  #Categorical DQN parameters
                  v_min=0.0,
                  v_max=200.0,
                  atom_size=51,
                  #Prioritised Experience Replay parameters
                  alpha=0.2,
-                 beta=0.6,
+                 beta=0.4,
                  prior_eps=1e-6,
                  # N-step learning
                  n_step=3,
+                 clip_grad_norm = 1.0, #max gradient update value
                  # Decide if to use a vit feature network or not
                  use_vit=False,
                  ):
@@ -370,6 +378,11 @@ class Agent_Rainbow_RND:
         
         #if loading models, then continue from the epoch left off at training. otherwise start from scratch
         self.curr_epoch = 1
+
+        self.initial_beta = beta
+        self.beta_decay_steps = beta_decay_steps
+
+        self.clip_grad_norm = clip_grad_norm
 
         #hyperparameters for learning
         self.learning_rate = learning_rate
@@ -538,13 +551,14 @@ class Agent_Rainbow_RND:
 
             self.plot_gradient_norms(self.model_rnd,rnd=True) #plot gradient norms for rnd
 
+        clip_grad_norm_(self.model_rnd.parameters(),self.clip_grad_norm)
         self.optimizer_rnd.step()
 
         self.optimizer.zero_grad()
         loss.backward()
         ep_loss = loss.item()
 
-        if self.game_steps % 1 == 0:
+        if self.game_steps % 500 == 0:
 
             with torch.no_grad():
                 states = torch.tensor(samples["states"], dtype=torch.float32, device=self.device)
@@ -585,7 +599,7 @@ class Agent_Rainbow_RND:
 
 
                 # Action distribution (less frequent)
-                if self.game_steps % 1 == 0:
+                if self.game_steps % 2500 == 0:
                     action_probs = torch.softmax(self.model(states), dim=1).squeeze()
                     for action in range(self.nb_actions):
                         log_data[f"Rainbow/Action_{action}_Prob"] = action_probs[action].mean().item() 
@@ -597,7 +611,7 @@ class Agent_Rainbow_RND:
 
             self.plot_gradient_norms(self.model) #plot gradient
         #clip gradient after the graphs as the graphs need to show the real gradient
-        clip_grad_norm_(self.model.parameters(),10.0) #prevent exploding gradient
+        clip_grad_norm_(self.model.parameters(),self.clip_grad_norm) #prevent exploding gradient
 
         self.optimizer.step()
 
@@ -760,8 +774,8 @@ class Agent_Rainbow_RND:
 
                 #PER: update beta, make it go closer to 1 as towards the end of training as we want 
                 # more unbiased updates to prevent overfitting
-                fraction = min(epoch/epochs,1.0)
-                self.beta = self.beta + fraction * (1.0 - self.beta)
+                self.beta = min(self.initial_beta + (1.0 - self.initial_beta) * (self.game_steps / self.beta_decay_steps), 1.0)
+                
                 #actual training part
                 #can take out of memory only if sufficient size
                 if self.memory.can_sample():    

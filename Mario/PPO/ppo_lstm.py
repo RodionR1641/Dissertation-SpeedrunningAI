@@ -12,6 +12,7 @@ import torch.optim as optim
 from gym.wrappers import RecordVideo
 from mario import Mario
 from model_lstm import MarioNet
+import datetime
 
 #exception class to handle loading of models
 class ModelLoadingError(Exception):
@@ -120,7 +121,6 @@ def load_models(weights_filename="models/ppo_lstm/ppo_lstm_latest.pth"):
         raise ModelLoadingError(f"Failed to load models from {weights_filename}") from e
 
 def parse_args():
-    # fmt: off
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp-name", type=str, default="PPO_LSTM_experiment",
         help="the name of this experiment")
@@ -219,7 +219,7 @@ def seed_run():
 if __name__ == "__main__":
     load_models_flag = True #decide if to load models or not
     args = parse_args()
-    run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
     run_id_name = f"{args.exp_name}__{args.seed}__{args.gym_id}"
 
     testing = args.testing
