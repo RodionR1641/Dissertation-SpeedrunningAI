@@ -146,7 +146,7 @@ class Agent:
         self.memory = ReplayBuffer(input_dims,memory_capacity,batch_size)
 
         #Combines adaptive learning rates with weight decay regularisation for better generalisation
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
         
         #load models
         if os.path.exists("models/dqn") and load_models_flag==True:

@@ -184,35 +184,64 @@ class PrioritisedMemory(ReplayBuffer):
         #get the weight of each experience at this index
         weights = np.array([self.calculate_weight(index,beta) for index in indices])
 
-        if game_steps % 500 == 0:
-            
-            # Get priorities for THIS BATCH (not historical)
-            batch_priorities = np.array([self.sum_tree[idx] for idx in indices])
-            raw_priorities = batch_priorities ** (1/self.alpha)  # Reverse alpha scaling to get raw data given for priorities
-        
+        if game_steps % 500 == 0: #500
+            batch_stats = self.get_priority_stats(full_buffer=False,indices=indices)
+
             wandb.log({
                 "game_steps": game_steps,
-                # Priority stats (raw values, not alpha-scaled)
-                "PER/Priority_mean": np.mean(raw_priorities),
-                "PER/Priority_max": np.max(raw_priorities),
-                "PER/Priority_min": np.min(raw_priorities),
-                # IS weights
-                "PER/IS_Weight_mean": np.mean(weights),
-                "PER/IS_Weight_max": np.max(weights),
-                # Scatter plot (every 5K steps)
+                "PER_Batch/Priority_Mean": batch_stats['mean'],
+                "PER_Batch/Priority_Max": batch_stats['max'],
+                "PER_Batch/Priority_Min": batch_stats['min'],
+                #weight stats
+                "PER_Batch/IS_Weight_mean": np.mean(weights),
+                "PER_Batch/IS_Weight_max": np.max(weights),
+                "PER_Batch/IS_Weight_min": np.min(weights),
+                "PER_Batch/IS_Weight_std": np.std(weights),
+                "PER_Batch/Effective_Batch_Size": (weights > 0.1).sum(),  # How many samples have significant weight
+                # Scatter plot (every 2.5K steps)
                 **({
-                    "PER/Priority_vs_Weight": wandb.plot.scatter(
+                    "PER_Batch/Priority_vs_Weight": wandb.plot.scatter(
                         wandb.Table(
                             columns=["Priority", "IS_Weight"],
-                            data=list(zip(raw_priorities, weights))
+                            data=list(zip(batch_stats['raw_priorities'], weights))
                         ),
                         x="Priority",
                         y="IS_Weight",
                         title="Priority vs. IS Weight"
                     )
-                } if game_steps % 2000 == 0 else {})
-            }, commit=False)
+                } if game_steps % 2500 == 0 else {}) #2500
 
+            },commit=False)    
+
+            wandb.log({
+                "PER_Batch/IS_Weight_Hist": wandb.Histogram(
+                    weights,
+                    num_bins=50
+                )
+            },commit=False)
+        
+        if game_steps % 10000 == 0: #10,000
+            full_stats = self.get_priority_stats(full_buffer=True)
+
+            wandb.log({
+                "game_steps": game_steps,
+                "PER_Full/Priority_Mean": full_stats['mean'],
+                "PER_Full/Priority_Max": full_stats['max'],
+                "PER_Full/Priority_Min": full_stats['min'],
+                "PER_Full/PriorityP90": full_stats['p90'],
+                "PER_Full/Priority_Spread": full_stats['max'] / (full_stats['mean'] + 1e-6), #how much max and min differ
+                "PER_Full/HighPriority_Ratio": np.sum(full_stats['raw_priorities'] > full_stats['p90'])/len(self), #percentage of 
+                #priorities falling outside the 90% range
+                "PER_Full/Global_Active_Size": len(self),  # Current buffer size
+
+            },commit=False)  
+            wandb.log({
+                "PER_Full/Priority_Hist": wandb.Histogram(
+                    full_stats['raw_priorities'],
+                    num_bins=50
+                )
+            },commit=False)
+        
         return dict(states=states,
             next_states=next_states,
             actions=actions,
@@ -220,6 +249,29 @@ class PrioritisedMemory(ReplayBuffer):
             dones=dones,
             weights=weights,
             indices=indices,)
+    
+    def get_priority_stats(self, full_buffer=False,indices=None):
+        """Returns priority statistics for either current batch or full buffer"""
+        if full_buffer:
+            # Full buffer scan (use sparingly)
+            priorities = np.array([self.sum_tree[idx] ** (1/self.alpha) 
+                                for idx in range(len(self))])
+        else:
+            # Current batch only, selected indices
+            if not indices:
+                indices = self.sample_proportional()
+            
+            priorities = np.array([self.sum_tree[idx] ** (1/self.alpha) 
+                                for idx in indices])
+        
+        return {
+            'mean': np.mean(priorities),
+            'max': np.max(priorities),
+            'min': np.min(priorities),
+            'p90': np.percentile(priorities, 90),
+            'raw_priorities': priorities  # Raw values for histogram
+        }
+
     
     def update_priorities(self, indices, priorities,game_steps):
         #Update priorities of sampled transitions based on td error
@@ -234,13 +286,6 @@ class PrioritisedMemory(ReplayBuffer):
 
             self.max_priority = max(self.max_priority, priority)# update our max priority in case this is higher
         
-        #track the current size of buffer and max priority
-        if game_steps % 500 == 0:
-            wandb.log({
-                "game_steps": game_steps,
-                "PER/Global_Max_Priority": self.max_priority,
-                "PER/Global_Active_Size": len(self),  # Current buffer size
-            },commit=False)
 
     #sample indices based on proportions 
     def sample_proportional(self):

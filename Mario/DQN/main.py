@@ -40,7 +40,7 @@ def parse_args():
     parser.add_argument("--resume-run", type=lambda x: bool(strtobool(x)), default= True , nargs="?", const=True,
         help="set to true if just want to test the agent playing the game")
     #agent type
-    parser.add_argument("--agent-type", type=int, default=2,
+    parser.add_argument("--agent-type", type=int, default=1,
         help="tells which DQN agent to use: 0=dueling double, 1=rainbow, 2=rainbow with RND")
     
 
