@@ -351,10 +351,10 @@ class Agent_Rainbow_RND:
                  device="cpu",
                  nb_actions=5,
                  memory_capacity=50_000,
-                 batch_size=32,
+                 batch_size=128,
                  learning_rate=1e-5,
                  gamma=0.99,
-                 sync_network_rate=1_000,
+                 sync_network_rate=32_000,
                  beta_decay_steps = 10_000_000, #the steps at which beta goes from initial value to 1.0
                  #Categorical DQN parameters
                  v_min=0.0,
@@ -775,7 +775,7 @@ class Agent_Rainbow_RND:
                 #PER: update beta, make it go closer to 1 as towards the end of training as we want 
                 # more unbiased updates to prevent overfitting
                 self.beta = min(self.initial_beta + (1.0 - self.initial_beta) * (self.game_steps / self.beta_decay_steps), 1.0)
-                
+
                 #actual training part
                 #can take out of memory only if sufficient size
                 if self.memory.can_sample():    
@@ -850,7 +850,7 @@ class Agent_Rainbow_RND:
                 })
 
             #gatherin stats
-            if epoch % 10 == 0:
+            if epoch % 1 == 0:
                 print("")
                 if loss_count > 0:
                     print(f"Episode return = {episodic_return}, Episode len = {episodic_len},  \

@@ -127,7 +127,7 @@ class ReplayBuffer():
 
     def can_sample(self):
         #need enough varied data to sample, as we sample random data
-        return self.size >= (self.batch_size * 10)
+        return self.size >= 80_000 #80k frames from the rainbow paper #(self.batch_size * 10)
 
 class PrioritisedMemory(ReplayBuffer):
     
@@ -351,23 +351,25 @@ class Agent_Rainbow:
                  env,
                  device="cpu",
                  nb_actions=5,
-                 memory_capacity=50_000,
-                 batch_size=32,
-                 learning_rate=1e-5,
+                 memory_capacity=100_000,
+                 batch_size=64,
+                 learning_rate=6.25e-5, #slightly higher rate than original paper for faster covergence with fewer samples
+                 adam_epsilon=1.5e-4, #small denominator added to adam to prevent division by 0 and improve numerical stability. reduce sensitivity to tiny gradients. bigger than the default 1e-8
                  gamma=0.99,
-                 sync_network_rate=1_000,
+                 sync_network_rate=32_000,
                  beta_decay_steps = 10_000_000, #the steps at which beta goes from initial value to 1.0
                  #Categorical DQN parameters
-                 v_min=0.0,
-                 v_max=200.0,
+                 v_min=-35.0, #maximum negative reward that can be reasonably expected. If too low, increase to -100. Both of these values
+                 #consider the discounted. Smaller values provide more granularity
+                 v_max=100.0, #max positive reward that can be reasonably expected for mario
                  atom_size=51,
                  #Prioritised Experience Replay parameters
-                 alpha=0.2,
-                 beta=0.4,
+                 alpha=0.6, #controls how important prioritisation is, 0 is uniform
+                 beta=0.6, #compensates for bias - Higher initial β (0.6) applies stronger correction early in training, reducing overfitting to high-priority transitions.
                  prior_eps=1e-6,
                  # N-step learning
                  n_step=3,
-                 clip_grad_norm = 1.0, #max gradient update value
+                 clip_grad_norm = 10.0, #max gradient update value
                  # Decide if to use a vit feature network or not
                  use_vit=False,
                  ):
@@ -434,7 +436,7 @@ class Agent_Rainbow:
         self.target_model.eval()#evaluation mode, means it wont learn via gradient updates
 
         #Combines adaptive learning rates with weight decay regularisation for better generalisation
-        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate,eps=adam_epsilon)
 
         # transition to store in memory
         self.transition = list()
@@ -532,7 +534,7 @@ class Agent_Rainbow:
         loss.backward()
         ep_loss = loss.item()
 
-        if self.game_steps % 1 == 0:
+        if self.game_steps % 500 == 0:
             #Track gradient norms for monitoring stability and see exploding or vanishing gradients
             total_norm = 0.0
             for p in self.model.parameters():
@@ -591,7 +593,7 @@ class Agent_Rainbow:
 
 
                 # Action distribution (less frequent)
-                if self.game_steps % 1 == 0:
+                if self.game_steps % 2500 == 0:
                     action_probs = torch.softmax(self.model(states), dim=1).squeeze()
                     for action in range(self.nb_actions):
                         log_data[f"Rainbow/Action_{action}_Prob"] = action_probs[action].mean().item() 
@@ -599,6 +601,54 @@ class Agent_Rainbow:
                         #could help see how confident the network is
                     #log the entropy
                     log_data["Rainbow/Atom_Entropy"] = -(action_probs * torch.log(action_probs + 1e-6)).sum(-1).mean().item(),
+                
+                #plot return distribution and probabilities of the entire atom size space
+                if self.game_steps % 2000 == 0: #5000
+                    atom_probs = probs.mean(dim=0).cpu().numpy()
+                    support = self.support.to("cpu").numpy()
+                    
+                    log_data["Rainbow/Return_Probability_Distribution"] = wandb.plot.line(
+                        wandb.Table(
+                            columns=["Return_Value", "Probability"],
+                            data=list(zip(support, atom_probs))
+                        ),
+                        x="Return_Value",
+                        y="Probability",
+                        title="Return Probability Distribution"
+                    )
+                # Log how much probability mass falls in different support regions
+                if self.game_steps % 2000 == 0:
+                    low = probs[:, :10].sum(dim=-1).mean().item()    # Mass in [-35, -8]
+                    mid = probs[:, 10:40].sum(dim=-1).mean().item() # Mass in (-8, 50]
+                    high = probs[:, 40:].sum(dim=-1).mean().item()  # Mass in (50, 100]
+                    
+                    log_data.update({
+                        "Rainbow/Support_Low_Mass": low,
+                        "Rainbow/Support_Mid_Mass": mid,
+                        "Rainbow/Support_High_Mass": high,
+                    })
+
+                    atom_probs = probs.mean(dim=0).cpu().numpy()
+                    top10_indices = np.argsort(atom_probs)[-10:][::-1] #Indices sorted descending
+                    #top10_probs = atom_probs[top10_indices] #Corresponding probabilities
+
+                    support_np = self.support.cpu().numpy().copy()  
+                    #top10_returns = support_np[top10_indices]
+
+                    top10_data = []
+                    # Create a table
+
+                    for idx in top10_indices:
+                        top10_data.append([
+                            idx,                          # Atom index (0–50)
+                            support_np[idx],      # Return value (e.g., +10.0)
+                            atom_probs[idx]                # Probability
+                        ])
+                    
+                    log_data["Rainbow/Top5_Atoms_Table"] = wandb.Table(
+                        columns=["Atom_Index", "Return_Value", "Probability"],
+                        data=top10_data
+                    )
             wandb.log(log_data, commit=False)
         
         #clip gradient after the graphs as the graphs need to show the real gradient

@@ -49,11 +49,11 @@ def parse_args():
     # Algorithm specific arguments
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
-    parser.add_argument("--learning-rate", type=float, default=1e-5,
+    parser.add_argument("--learning-rate", type=float, default=6.25e-5,
         help="the learning rate of the optimizer")
-    parser.add_argument("--memory-capacity", type=int, default=10_000, #50_000
+    parser.add_argument("--memory-capacity", type=int, default=100_000, #50_000
         help="number of experiences stored in replay buffer"),
-    parser.add_argument("--memory-capacity-rainbow", type=int, default=10_000,
+    parser.add_argument("--memory-capacity-rainbow", type=int, default=100_000,
         help="number of experiences stored in replay buffer"),
     parser.add_argument("--batch-size", type=int, default=128, #higher batch size than the usually used 32
         help="number of experiences sampled each time for training"),
@@ -63,18 +63,18 @@ def parse_args():
         help="the minimum epsilon value"),
     parser.add_argument("--nb-warmup", type=int, default=250_000,
         help="number of timesteps where epsilon decreases from starting to end value"),
-    parser.add_argument("--sync-network-rate", type=int, default=100,
+    parser.add_argument("--sync-network-rate", type=int, default=32_000,
         help="how often(timesteps) the target network copies the online network"),
     parser.add_argument("--use-vit", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="decide if using vit or not for model"),
     #rainbow and rnd specific
-    parser.add_argument("--v-min", type=int, default=0,
+    parser.add_argument("--v-min", type=int, default=-35,
         help="min value of support for categorical DQN"),
-    parser.add_argument("--v-max", type=int, default=200,
+    parser.add_argument("--v-max", type=int, default=100,
         help="max value of support for categorical DQN"),
     parser.add_argument("--atom-size", type=int, default=51,
         help="the unit number of support"),
-    parser.add_argument("--alpha", type=float, default=0.2,
+    parser.add_argument("--alpha", type=float, default=0.6,
         help="controls how important prioritised sampling is"),
     parser.add_argument("--beta", type=float, default=0.6,
         help="controls the weight "),
