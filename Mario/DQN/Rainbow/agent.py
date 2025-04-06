@@ -72,10 +72,18 @@ class ReplayBuffer():
 
         state, action = self.step_storage[0][:2]
 
-        #Convert CUDA tensor to CPU NumPy array
+        # Convert state if it's a PyTorch tensor
         if torch.is_tensor(state):
             state = state.cpu().numpy()
+        # Handle LazyFrames (Gym Atari wrappers)
+        elif hasattr(state, '__array__'):  # Works for LazyFrames
+            state = np.array(state)  # Convert LazyFrames to NumPy
+        
+        # Same for next_state
+        if torch.is_tensor(next_state):
             next_state = next_state.cpu().numpy()
+        elif hasattr(next_state, '__array__'):
+            next_state = np.array(next_state)
         
         self.state_storage[self.ptr] = state 
         self.next_state_storage[self.ptr] = next_state
