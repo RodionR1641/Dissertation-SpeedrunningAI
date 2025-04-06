@@ -72,6 +72,11 @@ class ReplayBuffer():
 
         state, action = self.step_storage[0][:2]
 
+        #Convert CUDA tensor to CPU NumPy array
+        if torch.is_tensor(state):
+            state = state.cpu().numpy()
+            next_state = next_state.cpu().numpy()
+        
         self.state_storage[self.ptr] = state 
         self.next_state_storage[self.ptr] = next_state
         self.actions_storage[self.ptr] = action
