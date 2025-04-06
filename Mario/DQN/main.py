@@ -49,13 +49,13 @@ def parse_args():
     # Algorithm specific arguments
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
-    parser.add_argument("--learning-rate", type=float, default=6.25e-5,
+    parser.add_argument("--learning-rate", type=float, default=0.0000625,
         help="the learning rate of the optimizer")
-    parser.add_argument("--memory-capacity", type=int, default=100_000, #50_000
+    parser.add_argument("--memory-capacity", type=int, default=1_000_000, #50_000
         help="number of experiences stored in replay buffer"),
-    parser.add_argument("--memory-capacity-rainbow", type=int, default=100_000,
+    parser.add_argument("--memory-capacity-rainbow", type=int, default=1_000_000,
         help="number of experiences stored in replay buffer"),
-    parser.add_argument("--batch-size", type=int, default=128, #higher batch size than the usually used 32
+    parser.add_argument("--batch-size", type=int, default=32,
         help="number of experiences sampled each time for training"),
     parser.add_argument("--epsilon", type=float, default=1.0,
         help="the starting epsilon value"),
@@ -74,9 +74,9 @@ def parse_args():
         help="max value of support for categorical DQN"),
     parser.add_argument("--atom-size", type=int, default=51,
         help="the unit number of support"),
-    parser.add_argument("--alpha", type=float, default=0.6,
+    parser.add_argument("--alpha", type=float, default=0.5,
         help="controls how important prioritised sampling is"),
-    parser.add_argument("--beta", type=float, default=0.6,
+    parser.add_argument("--beta", type=float, default=0.4,
         help="controls the weight "),
     parser.add_argument("--prior-eps", type=float, default=1e-6,
         help="small value to make sure every experience has chance of being selected"),
@@ -145,6 +145,7 @@ if __name__ == "__main__":
                     env=environment,
                     device=device,
                     nb_actions=num_actions,
+                    adam_epsilon=1.5e-4,
                     memory_capacity=args.memory_capacity_rainbow,
                     batch_size=args.batch_size,
                     learning_rate=args.learning_rate,

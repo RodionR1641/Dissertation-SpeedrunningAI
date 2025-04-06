@@ -351,9 +351,9 @@ class Agent_Rainbow:
                  env,
                  device="cpu",
                  nb_actions=5,
-                 memory_capacity=100_000,
-                 batch_size=64,
-                 learning_rate=6.25e-5, #slightly higher rate than original paper for faster covergence with fewer samples
+                 memory_capacity=1_000_000,
+                 batch_size=32,
+                 learning_rate=0.0000625, #slightly higher rate than original paper for faster covergence with fewer samples
                  adam_epsilon=1.5e-4, #small denominator added to adam to prevent division by 0 and improve numerical stability. reduce sensitivity to tiny gradients. bigger than the default 1e-8
                  gamma=0.99,
                  sync_network_rate=32_000,
@@ -364,8 +364,8 @@ class Agent_Rainbow:
                  v_max=100.0, #max positive reward that can be reasonably expected for mario
                  atom_size=51,
                  #Prioritised Experience Replay parameters
-                 alpha=0.6, #controls how important prioritisation is, 0 is uniform
-                 beta=0.6, #compensates for bias - Higher initial β (0.6) applies stronger correction early in training, reducing overfitting to high-priority transitions.
+                 alpha=0.5, #controls how important prioritisation is, 0 is uniform
+                 beta=0.4, #compensates for bias - Higher initial β (0.6) applies stronger correction early in training, reducing overfitting to high-priority transitions.
                  prior_eps=1e-6,
                  # N-step learning
                  n_step=3,
@@ -656,7 +656,7 @@ class Agent_Rainbow:
 
         self.optimizer.step()
 
-        #PER: update priorities
+        #PER: update priorities. The prioritirisation is based on Loss, not on TD error
         loss_for_prior = element_loss.detach().cpu().numpy()
         new_priorities = loss_for_prior + self.prior_eps # a small number added at the end to make sure its never 0
         self.memory.update_priorities(indices,new_priorities,self.game_steps)
