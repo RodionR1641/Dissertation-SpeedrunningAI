@@ -35,6 +35,7 @@ class ActorCritic(nn.Module):
         self.critic_value3 = nn.Linear(1024,1)
         """
         self.to(device)
+        print(f"Model device: {next(self.parameters()).device}")
     
     def forward(self,state):
 
@@ -63,7 +64,10 @@ class ActorCritic(nn.Module):
     def get_flat_size(self,input_shape):
 
         with torch.no_grad():#no gradient computation, just a dummy pass
-            dummy_input = torch.zeros(1,*input_shape).to(self.device)
+
+            self.to(self.device)
+            # Then create dummy input on same device
+            dummy_input = torch.zeros(1, *input_shape, device=self.device)
             x = self.conv1(dummy_input)
             x = self.conv2(x)
             x = self.conv3(x)
