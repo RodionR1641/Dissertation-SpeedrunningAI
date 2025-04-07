@@ -326,8 +326,8 @@ if __name__ == "__main__":
                     config=vars(args),
                     name=run_name,
                     monitor_gym=False, # Monitors videos, but for old gym. Doesn't work now
-                    save_code=True,
-                    mode="disabled"
+                    save_code=True
+                    
                 )
                 print(f"Resumed existing run with ID: {run_id}")
             else:
@@ -338,8 +338,7 @@ if __name__ == "__main__":
                     config=vars(args),
                     name=run_name,
                     monitor_gym=False, # Monitors videos, but for old gym. Doesn't work now
-                    save_code=True,
-                    mode="disabled"
+                    save_code=True
                 )
                 print(f"Started new run with ID: {run.id}")
 
