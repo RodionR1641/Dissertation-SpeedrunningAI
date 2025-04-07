@@ -253,7 +253,7 @@ def test(env,device,args):
     n_actions = env.action_num
 
     agent = Agent(input_shape=env.observation_space.shape,lr_rate=alpha,
-                  n_actions=n_actions,gamma=gamma,num_envs=num_envs)
+                  n_actions=n_actions,device=device,gamma=gamma,num_envs=num_envs)
     
     if load_models_flag == True:
         agent.load_models() #make sure the latest model is loaded
