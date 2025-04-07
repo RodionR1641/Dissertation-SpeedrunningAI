@@ -138,7 +138,7 @@ class Agent:
 
         self.game_steps = 0 #track how many steps taken over entire training
         self.num_completed_episodes = 0#how many games have ended in getting the flag
-        self.best_time_episode = 1e9 #best time of an episode in speedrunning
+        self.best_time_episode = 0 #best time of an episode in speedrunning
 
         self.loss = torch.nn.MSELoss()
 
@@ -334,7 +334,7 @@ class Agent:
                             "Charts/completion_rate": self.num_completed_episodes / episodes,
                         },commit=False)
 
-                        if info["time"] < self.best_time_episode:
+                        if info["time"] > self.best_time_episode:
                             #find the previous file with this old best time
                             filename = f"models/dqn/best_{self.best_time_episode}.pth"
                             new_filename = f"models/dqn/best_{info['time']}.pth"

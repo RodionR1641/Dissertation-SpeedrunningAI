@@ -24,7 +24,7 @@ class Agent:
         self.total_episodes = 1 #total number of epochs/episodes of game playing that happened
         self.curr_epoch = 1 #what the current epoch is
         self.entropy = 0
-        self.best_time_episode = 1e9
+        self.best_time_episode = 0
         self.device = device
         print(f"Device for Agent = {device}")
 

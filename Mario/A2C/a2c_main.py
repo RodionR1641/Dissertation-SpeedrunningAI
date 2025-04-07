@@ -194,7 +194,7 @@ def train(env,device,args):
                             "Charts/completion_rate": agent.num_completed_episodes / agent.total_episodes,
                         })
 
-                        if item["time"] < agent.best_time_episode:
+                        if item["time"] > agent.best_time_episode:
                             #find the previous file with this old best time
                             filename = f"models/a2c/best_{agent.best_time_episode}.pth"
                             new_filename = f"models/a2c/best_{item['time']}.pth"
