@@ -9,7 +9,6 @@ class ActorCritic(nn.Module):
         super(ActorCritic,self).__init__()
 
         self.device = device
-        self.to(device)
 
         self.n_actions = n_actions
         self.relu = nn.ReLU()
@@ -35,11 +34,12 @@ class ActorCritic(nn.Module):
         self.critic_value2 = nn.Linear(1024,1024)
         self.critic_value3 = nn.Linear(1024,1)
         """
+        self.to(device)
     
     def forward(self,state):
 
         if state.device != self.device:
-            state.to(self.device)
+            state = state.to(self.device)
         state = state/255.0 #normalise to range 0-1
         x = self.relu(self.conv1(state))
         x = self.relu(self.conv2(x))

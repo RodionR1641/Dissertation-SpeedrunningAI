@@ -63,7 +63,7 @@ class MarioNet(nn.Module):
     def forward(self,x):
         x = x / 255.0#normalise between 0 and 1, better gradient stability
         if x.device != self.device:
-            x.to(self.device)
+            x = x.to(self.device)
         
         dist = self.dist(x)
         q = torch.sum(dist * self.support, dim=2)#do sum over last dimension(atom_size)

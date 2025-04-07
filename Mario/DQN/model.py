@@ -56,7 +56,7 @@ class MarioNet(nn.Module):
         #passing through the layers, starting with the raw image data
 
         if x.device != self.device:
-            x.to(self.device)
+            x = x.to(self.device)
         x = x/255.0 #normalise in range 0-1
         #relu used after conv layers(their output). 
         x = self.relu(self.conv1(x)) # relu takes value, anything under 0 gets nullified. Add non linearity

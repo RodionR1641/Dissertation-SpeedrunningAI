@@ -48,7 +48,7 @@ class MarioNet(nn.Module):
     
     def get_states(self,x,lstm_state,done):
         if x.device != self.device:
-            x.to(self.device)
+            x = x.to(self.device)
 
         hidden = self.cnn(x / 255.0)#divide by 255 -> the image observation has a range 0-255, we get it range of 0 to 1
 

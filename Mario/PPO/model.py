@@ -56,7 +56,7 @@ class MarioNet(nn.Module):
     
     def get_value(self,x):
         if x.device != self.device:
-            x.to(self.device)
+            x = x.to(self.device)
         #divide by 255 -> the image observation has a range 0-255, we get it range of 0 to 1
         return self.critic(self.cnn(x / 255.0)) #go through cnn first then critic
 
