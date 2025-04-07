@@ -146,7 +146,7 @@ class Agent:
         self.memory = ReplayBuffer(input_dims,memory_capacity,batch_size)
 
         #Combines adaptive learning rates with weight decay regularisation for better generalisation
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=self.learning_rate)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
         
         #load models
         if os.path.exists("models/dqn") and load_models_flag==True:
@@ -247,16 +247,16 @@ class Agent:
 
                     # DDQN - Compute target Q-values from the online network, then use the 
                     # target network to evaluate. No gradient computation here
-                    with torch.no_grad():
-                        best_next_actions = self.model(next_states).argmax(dim=1) #get the best action using max of dim=1
-                        #(which are the actions). argmax return indices this feeds the next_states into target_model 
-                        # and then selects its own values of the actions that online model chose
-                        next_qsa_b = self.target_model(next_states).detach()[np.arange(self.batch_size),best_next_actions]
-                        
-                        # dqn = r + gamma * max Q(s,a)
-                        # ddqn = r + gamma * online_network(s',argmax target_network_Q(s',a'))
-                        #detach -> important as we dont want to back propagate on target network
-                        target_b = (rewards + self.gamma * next_qsa_b * (1 - dones.float()) )
+                    
+                    best_next_actions = self.model(next_states).argmax(dim=1) #get the best action using max of dim=1
+                    #(which are the actions). argmax return indices this feeds the next_states into target_model 
+                    # and then selects its own values of the actions that online model chose
+                    next_qsa_b = self.target_model(next_states).detach()[np.arange(self.batch_size),best_next_actions]
+                    
+                    # dqn = r + gamma * max Q(s,a)
+                    # ddqn = r + gamma * online_network(s',argmax target_network_Q(s',a'))
+                    #detach -> important as we dont want to back propagate on target network
+                    target_b = (rewards + self.gamma * next_qsa_b * (1 - dones.float()) )
                          #1-dones.float() -> stop propagating when finished episode
                     
                     loss = self.loss(qsa_b,target_b)
@@ -266,7 +266,7 @@ class Agent:
                     ep_loss += loss.item()
                     loss_count += 1
 
-                    if self.game_steps % 1 == 0: #only track periodically for efficiency reasons
+                    if self.game_steps % 500 == 0: #only track periodically for efficiency reasons
                         #Track gradient norms for monitoring stability and see exploding or vanishing gradients
                         total_norm = 0.0
                         for p in self.model.parameters():
@@ -296,7 +296,7 @@ class Agent:
                             }
 
                             # Action-specific Q-values (less frequent to reduce overhead)
-                            if self.game_steps % 1 == 0:  # Every 5x gradient logging
+                            if self.game_steps % 2500 == 0:  # Every 5x gradient logging
                                 rand_state = states[0:1]  # Use already-loaded state
                                 action_qs = self.model(rand_state)
                                 for action in range(action_qs.shape[1]):

@@ -20,7 +20,7 @@ class MarioNet(nn.Module):
         #Categorical DQN
         self.support = support
         self.out_dim = out_dim
-        self.atom_size = atom_size
+        self.atom_size = atom_size  
 
         self.relu = nn.ReLU()
 
@@ -40,6 +40,14 @@ class MarioNet(nn.Module):
         flat_size = get_flat_size(input_shape,self.feature_layer)
         print("flattened size = "+str(flat_size))
         
+        self.shared = NoisyLinear(flat_size,512)
+        
+        self.advantage_layer1 = NoisyLinear(512,512)# output a distribution of probabilites 
+        self.advantage_layer2 = NoisyLinear(512,out_dim * atom_size)
+        
+        self.value_layer1 = NoisyLinear(512,512)
+        self.value_layer2 = NoisyLinear(512,atom_size)
+        """
         #value of the image state
         self.action_value1 = NoisyLinear(flat_size,1024) # 1024 neurons we use in fully connected layer
         self.action_value2 = NoisyLinear(1024,1024)
@@ -50,6 +58,7 @@ class MarioNet(nn.Module):
         self.state_value1 = NoisyLinear(flat_size,1024)
         self.state_value2 = NoisyLinear(1024,1024)
         self.value_layer = NoisyLinear(1024,atom_size)
+        """
 
         self.device = device
         self.to(self.device)
@@ -72,16 +81,22 @@ class MarioNet(nn.Module):
         feature = self.feature_layer(x)
         feature = self.flatten(feature)
 
+        """
         #dueling network passing through
         adv_hid1 = self.relu(self.action_value1(feature))
         adv_hid2 = self.relu(self.action_value2(adv_hid1))
         val_hid1 = self.relu(self.state_value1(feature))
         val_hid2 = self.relu(self.state_value2(val_hid1))
+        """
+        shared = self.relu(self.shared(feature))
 
-        advantage = self.advantage_layer(adv_hid2).view(
+        adv_hid = self.relu(self.advantage_layer1(shared))
+        advantage = self.advantage_layer2(adv_hid).view(
             -1,self.out_dim,self.atom_size
         )# shape (batch_size,out_dim,atom_size). Advantage is a distribution over atoms for each action
-        value = self.value_layer(val_hid2).view(-1,1,self.atom_size)#out dimension is just 1 here. The state value is the same for all actions
+        
+        value_hid = self.relu(self.value_layer1(shared))
+        value = self.value_layer2(value_hid).view(-1,1,self.atom_size)#out dimension is just 1 here. The state value is the same for all actions
 
         q_atoms = value + advantage - advantage.mean(dim=1, keepdim=True) #final shape is (batch_size,1,atom_size)
 
@@ -92,13 +107,17 @@ class MarioNet(nn.Module):
     
     #Reset all noisy layers
     def reset_noise(self):
-        self.action_value1.reset_noise()
-        self.action_value2.reset_noise()
-        self.advantage_layer.reset_noise()
+        #self.action_value1.reset_noise()
+        #self.action_value2.reset_noise()
+        self.shared.reset_noise()
 
-        self.state_value1.reset_noise()
-        self.state_value2.reset_noise() 
-        self.value_layer.reset_noise()
+        self.advantage_layer1.reset_noise()
+        self.advantage_layer2.reset_noise()
+
+        #self.state_value1.reset_noise()
+        #self.state_value2.reset_noise() 
+        self.value_layer1.reset_noise()
+        self.value_layer2.reset_noise()
     
 
 # introduce noise into neural networks to encourage exploration

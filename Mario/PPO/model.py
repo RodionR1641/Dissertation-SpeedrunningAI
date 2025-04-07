@@ -8,7 +8,7 @@ from torch.distributions.categorical import Categorical
 class MarioNet(nn.Module):
     def __init__(self,envs,input_shape,device="cpu"):
         super(MarioNet,self).__init__()
-        
+        """
         self.cnn = nn.Sequential(
             layer_init(nn.Conv2d(input_shape[0],32,8,stride=4)),
             nn.ReLU(),
@@ -18,11 +18,27 @@ class MarioNet(nn.Module):
             nn.ReLU(),
             nn.Flatten(),
             #linear layer that takes input of the flattened features
-            layer_init(nn.Linear(64*7*7, 1024)), # get reduced into a 7x7 image with 64 channels 
+            layer_init(nn.Linear(64*7*7, 512)), # get reduced into a 7x7 image with 64 channels 
+            nn.ReLU(),
+        )
+        """
+        self.cnn = nn.Sequential(
+            layer_init(nn.Conv2d(input_shape[0],32,3,stride=2,padding=1)),
+            nn.ReLU(),  
+            layer_init(nn.Conv2d(32,32,3,stride=2,padding=1)),
+            nn.ReLU(),
+            layer_init(nn.Conv2d(32,32,3,stride=2,padding=1)),
+            nn.ReLU(),
+            layer_init(nn.Conv2d(32,32,3,stride=2,padding=1)),
+            nn.ReLU(),  
+            nn.Flatten(),
+            layer_init(nn.Linear(32*6*6, 512)), # get reduced into a 7x7 image with 64 channels 
             nn.ReLU(),
         )
         
-        
+        self.critic = nn.Linear(512,1)
+        self.actor = nn.Linear(512,envs.single_action_space.n)
+        """
         self.critic = nn.Sequential(
             layer_init(nn.Linear(1024,1024)), #input shape to first layer is product of obesrvation space
             nn.ReLU(),
@@ -34,7 +50,7 @@ class MarioNet(nn.Module):
             nn.ReLU(),
             layer_init(nn.Linear(1024,envs.single_action_space.n) , std=0.01),
         )
-        
+        """
         self.device = device
         self.to(device)
     

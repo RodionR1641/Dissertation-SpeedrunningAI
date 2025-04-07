@@ -12,6 +12,7 @@ import torch.optim as optim
 from gym.wrappers import RecordVideo
 from mario import Mario
 from model_lstm import MarioNet
+import datetime
 
 #exception class to handle loading of models
 class ModelLoadingError(Exception):
@@ -73,7 +74,7 @@ def test(env, device):
     env.close()
 
 #these models take a while to train, want to save it and reload on start. Save both target and online for exact reproducibility
-def save_models(num_updates,game_steps,num_completed_episodes,total_episodes,
+def save_models(num_updates,game_steps,num_completed_episodes,total_episodes,best_time_episode,
                  weights_filename="models/ppo_lstm/ppo_lstm_latest.pth"):
     #state_dict() -> dictionary of the states/weights in a given model
     # we override nn.Module, so this can be done
@@ -120,7 +121,6 @@ def load_models(weights_filename="models/ppo_lstm/ppo_lstm_latest.pth"):
         raise ModelLoadingError(f"Failed to load models from {weights_filename}") from e
 
 def parse_args():
-    # fmt: off
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp-name", type=str, default="PPO_LSTM_experiment",
         help="the name of this experiment")
@@ -157,7 +157,7 @@ def parse_args():
     parser.add_argument("--num-envs", type=int, default=8, #number of sub environments in a vector environment
         help="the number of parallel game environments")
     
-    parser.add_argument("--num-steps", type=int, default=256,#higher value as using LSTM
+    parser.add_argument("--num-steps", type=int, default=512,#higher value as using LSTM
         help="the number of steps to run in each environment per policy rollout") # control the number of data to collect for EACH policy rollout
     # total data = num_steps * num_envs . This is our BATCH_SIZE
     parser.add_argument("--anneal-lr", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
@@ -170,11 +170,11 @@ def parse_args():
         help="the lambda for the general advantage estimation")
     parser.add_argument("--num-minibatches", type=int, default=8,#more batches for better gradient estimates
         help="the number of mini-batches")
-    parser.add_argument("--update-epochs", type=int, default=6,
+    parser.add_argument("--update-epochs", type=int, default=10,
         help="the K epochs to update the policy") # ///
     parser.add_argument("--norm-adv", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="Toggles advantages normalization")
-    parser.add_argument("--clip-coef", type=float, default=0.1,
+    parser.add_argument("--clip-coef", type=float, default=0.2,
         help="the surrogate clipping coefficient")
     parser.add_argument("--clip-vloss", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="Toggles whether or not to use a clipped loss for the value function, as per the paper.")
@@ -182,9 +182,9 @@ def parse_args():
         help="coefficient of the entropy")
     parser.add_argument("--vf-coef", type=float, default=0.5,
         help="coefficient of the value function")
-    parser.add_argument("--max-grad-norm", type=float, default=1.0,#higher than 0.5 to prevent underflow
+    parser.add_argument("--max-grad-norm", type=float, default=0.5,#higher than 0.5 to prevent underflow
         help="the maximum norm for the gradient clipping")
-    parser.add_argument("--target-kl", type=float, default=0.05, #0.05 is quite lenient 
+    parser.add_argument("--target-kl", type=float, default=0.03, #0.03 is quite lenient 
         help="the target KL divergence threshold")
 
     args = parser.parse_args()
@@ -219,7 +219,7 @@ def seed_run():
 if __name__ == "__main__":
     load_models_flag = True #decide if to load models or not
     args = parse_args()
-    run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    run_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
     run_id_name = f"{args.exp_name}__{args.seed}__{args.gym_id}"
 
     testing = args.testing

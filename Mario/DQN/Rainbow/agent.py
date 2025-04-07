@@ -5,6 +5,7 @@ import torch.optim as optim
 import numpy as np
 import time
 from Rainbow.rainbow_model import MarioNet
+from Rainbow.rainbow_model import NoisyLinear
 from model_mobile_vit import MarioNet_ViT
 from collections import deque
 from segment_tree import MinSegmentTree, SumSegmentTree
@@ -71,6 +72,19 @@ class ReplayBuffer():
 
         state, action = self.step_storage[0][:2]
 
+        # Convert state if it's a PyTorch tensor
+        if torch.is_tensor(state):
+            state = state.cpu().numpy()
+        # Handle LazyFrames (Gym Atari wrappers)
+        elif hasattr(state, '__array__'):  # Works for LazyFrames
+            state = np.array(state)  # Convert LazyFrames to NumPy
+        
+        # Same for next_state
+        if torch.is_tensor(next_state):
+            next_state = next_state.cpu().numpy()
+        elif hasattr(next_state, '__array__'):
+            next_state = np.array(next_state)
+        
         self.state_storage[self.ptr] = state 
         self.next_state_storage[self.ptr] = next_state
         self.actions_storage[self.ptr] = action
@@ -126,7 +140,7 @@ class ReplayBuffer():
 
     def can_sample(self):
         #need enough varied data to sample, as we sample random data
-        return self.size >= (self.batch_size * 10)
+        return self.size >= 80_000 #80k frames from the rainbow paper #(self.batch_size * 10)
 
 class PrioritisedMemory(ReplayBuffer):
     
@@ -184,35 +198,70 @@ class PrioritisedMemory(ReplayBuffer):
         #get the weight of each experience at this index
         weights = np.array([self.calculate_weight(index,beta) for index in indices])
 
-        if game_steps % 500 == 0:
-            
-            # Get priorities for THIS BATCH (not historical)
-            batch_priorities = np.array([self.sum_tree[idx] for idx in indices])
-            raw_priorities = batch_priorities ** (1/self.alpha)  # Reverse alpha scaling to get raw data given for priorities
-        
+        if game_steps % 500 == 0: #500
+            batch_stats = self.get_priority_stats(full_buffer=False,indices=indices)
+
             wandb.log({
                 "game_steps": game_steps,
-                # Priority stats (raw values, not alpha-scaled)
-                "PER/Priority_mean": np.mean(raw_priorities),
-                "PER/Priority_max": np.max(raw_priorities),
-                "PER/Priority_min": np.min(raw_priorities),
-                # IS weights
-                "PER/IS_Weight_mean": np.mean(weights),
-                "PER/IS_Weight_max": np.max(weights),
-                # Scatter plot (every 5K steps)
+                "PER_Batch/Priority_Mean": batch_stats['mean'],
+                "PER_Batch/Priority_Max": batch_stats['max'],
+                "PER_Batch/Priority_Min": batch_stats['min'],
+                #weight stats
+                "PER_Batch/IS_Weight_mean": np.mean(weights),
+                "PER_Batch/IS_Weight_max": np.max(weights),
+                "PER_Batch/IS_Weight_min": np.min(weights),
+                "PER_Batch/IS_Weight_std": np.std(weights),
+                "PER_Batch/Effective_Batch_Size": (weights > 0.1).sum(),  # How many samples have significant weight
+                # Scatter plot (every 2.5K steps)
                 **({
-                    "PER/Priority_vs_Weight": wandb.plot.scatter(
+                    "PER_Batch/Priority_vs_Weight": wandb.plot.scatter(
                         wandb.Table(
                             columns=["Priority", "IS_Weight"],
-                            data=list(zip(raw_priorities, weights))
+                            data=list(zip(batch_stats['raw_priorities'], weights))
                         ),
                         x="Priority",
                         y="IS_Weight",
                         title="Priority vs. IS Weight"
                     )
-                } if game_steps % 2000 == 0 else {})
-            }, commit=False)
+                } if game_steps % 2500 == 0 else {}) #2500
 
+            },commit=False)    
+
+            min_p, max_p = np.min(weights), np.max(weights)
+            bins = np.linspace(min_p, max_p, 50)  # 50 evenly spaced bins
+
+            wandb.log({
+                "PER_Batch/IS_Weight_Hist": wandb.Histogram(
+                    np_histogram=np.histogram(weights, bins=bins)
+                )
+            }, commit=False)
+        
+        if game_steps % 10000 == 0: #10,000
+            full_stats = self.get_priority_stats(full_buffer=True)
+            priorities = full_stats['raw_priorities']
+
+            wandb.log({
+                "game_steps": game_steps,
+                "PER_Full/Priority_Mean": full_stats['mean'],
+                "PER_Full/Priority_Max": full_stats['max'],
+                "PER_Full/Priority_Min": full_stats['min'],
+                "PER_Full/PriorityP90": full_stats['p90'],
+                "PER_Full/Priority_Spread": full_stats['max'] / (full_stats['mean'] + 1e-6), #how much max and min differ
+                "PER_Full/HighPriority_Ratio": np.sum(priorities > full_stats['p90'])/len(self), #percentage of 
+                #priorities falling outside the 90% range
+                "PER_Full/Global_Active_Size": len(self),  # Current buffer size
+
+            },commit=False)  
+
+            min_p, max_p = np.min(priorities), np.max(priorities)
+            bins = np.linspace(min_p, max_p, 50)  # 50 evenly spaced bins
+
+            wandb.log({
+                "PER_Full/Priority_Hist": wandb.Histogram(
+                    np_histogram=np.histogram(priorities, bins=bins)
+                )
+            }, commit=False)
+        
         return dict(states=states,
             next_states=next_states,
             actions=actions,
@@ -221,6 +270,29 @@ class PrioritisedMemory(ReplayBuffer):
             weights=weights,
             indices=indices,)
     
+    def get_priority_stats(self, full_buffer=False,indices=None):
+        """Returns priority statistics for either current batch or full buffer"""
+        if full_buffer:
+            # Full buffer scan (use sparingly)
+            priorities = np.array([self.sum_tree[idx] ** (1/self.alpha) 
+                                for idx in range(len(self))])
+        else:
+            # Current batch only, selected indices
+            if not indices:
+                indices = self.sample_proportional()
+            
+            priorities = np.array([self.sum_tree[idx] ** (1/self.alpha) 
+                                for idx in indices])
+        
+        return {
+            'mean': np.mean(priorities),
+            'max': np.max(priorities),
+            'min': np.min(priorities),
+            'p90': np.percentile(priorities, 90),
+            'raw_priorities': priorities  # Raw values for histogram
+        }
+
+
     def update_priorities(self, indices, priorities,game_steps):
         #Update priorities of sampled transitions based on td error
         assert len(indices) == len(priorities)
@@ -234,13 +306,6 @@ class PrioritisedMemory(ReplayBuffer):
 
             self.max_priority = max(self.max_priority, priority)# update our max priority in case this is higher
 
-        #track the current size of buffer and max priority         
-        if game_steps % 500 == 0:
-            wandb.log({
-                "game_steps": game_steps,
-                "PER/Global_Max_Priority": self.max_priority,
-                "PER/Global_Active_Size": len(self),  # Current buffer size
-            },commit=False)
 
     #sample indices based on proportions 
     def sample_proportional(self):
@@ -299,21 +364,25 @@ class Agent_Rainbow:
                  env,
                  device="cpu",
                  nb_actions=5,
-                 memory_capacity=50_000,
+                 memory_capacity=1_000_000,
                  batch_size=32,
-                 learning_rate=1e-5,
+                 learning_rate=0.0000625, #slightly higher rate than original paper for faster covergence with fewer samples
+                 adam_epsilon=1.5e-4, #small denominator added to adam to prevent division by 0 and improve numerical stability. reduce sensitivity to tiny gradients. bigger than the default 1e-8
                  gamma=0.99,
-                 sync_network_rate=1_000,
+                 sync_network_rate=32_000,
+                 beta_decay_steps = 10_000_000, #the steps at which beta goes from initial value to 1.0
                  #Categorical DQN parameters
-                 v_min=0.0,
-                 v_max=200.0,
+                 v_min=-35.0, #maximum negative reward that can be reasonably expected. If too low, increase to -100. Both of these values
+                 #consider the discounted. Smaller values provide more granularity
+                 v_max=100.0, #max positive reward that can be reasonably expected for mario
                  atom_size=51,
                  #Prioritised Experience Replay parameters
-                 alpha=0.2,
-                 beta=0.6,
+                 alpha=0.5, #controls how important prioritisation is, 0 is uniform
+                 beta=0.4, #compensates for bias - Higher initial β (0.6) applies stronger correction early in training, reducing overfitting to high-priority transitions.
                  prior_eps=1e-6,
                  # N-step learning
                  n_step=3,
+                 clip_grad_norm = 10.0, #max gradient update value
                  # Decide if to use a vit feature network or not
                  use_vit=False,
                  ):
@@ -325,6 +394,10 @@ class Agent_Rainbow:
         #if loading models, then continue from the epoch left off at training. otherwise start from scratch
         self.curr_epoch = 1
 
+        self.initial_beta = beta
+        self.beta_decay_steps = beta_decay_steps
+
+        self.clip_grad_norm = clip_grad_norm
         #hyperparameters for learning
         self.learning_rate = learning_rate
         self.gamma = gamma
@@ -376,7 +449,7 @@ class Agent_Rainbow:
         self.target_model.eval()#evaluation mode, means it wont learn via gradient updates
 
         #Combines adaptive learning rates with weight decay regularisation for better generalisation
-        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate,eps=adam_epsilon)
 
         # transition to store in memory
         self.transition = list()
@@ -492,8 +565,10 @@ class Agent_Rainbow:
             }
 
             with torch.no_grad():
-                dist = self.model.dist(samples["states"])
-                probs = torch.softmax(dist[range(self.batch_size), samples["actions"] ], dim=-1)
+                states = torch.tensor(samples["states"], dtype=torch.float32, device=self.device)
+                actions = torch.tensor(samples["actions"], dtype=torch.long, device=self.device) #long tensor for actions
+                dist = self.model.dist(states)
+                probs = torch.softmax(dist[range(self.batch_size), actions ], dim=-1) #softmax so easy to compare the distribution, all add up to 1 
                 expected_q = (probs * self.support).sum(-1)
 
                 if self.use_n_step:
@@ -511,7 +586,6 @@ class Agent_Rainbow:
                     "Rainbow/Expected_Q_Avg": expected_q.mean().item(),
                     "Rainbow/Atoms_Std": probs.std(dim=-1).mean().item(),
                     "Rainbow/Expected_Q_Std": expected_q.std().item(),
-                    "Rainbow/Atom_Entropy": -(action_probs * torch.log(action_probs + 1e-6)).sum(-1).mean().item(),
 
                     # N-step (if used)
                     "Rainbow/N_Step_Gamma": self.gamma ** self.n_step if self.use_n_step else 0,
@@ -519,28 +593,83 @@ class Agent_Rainbow:
                     "Rainbow/N_Step_TD_Ratio": n_step_td.mean().item() / element_loss.mean().item()
                 }
                 #noisy net data
-                noise_magnitudes = {
-                    name: param.noise_std 
-                    for name, param in self.model.named_parameters() 
-                    if hasattr(param, 'noise_std')
-                }
-                for mag,name in noise_magnitudes:
-                    log_data[f"Noisy/{name}"] = mag 
+                for name, module in self.model.named_modules():
+                    if isinstance(module, NoisyLinear):
+                        # Calculate current effective noise magnitude
+                        weight_noise = (module.weight_sigma * module.weight_epsilon).std().item()
+                        bias_noise = (module.bias_sigma * module.bias_epsilon).std().item()
+                        
+                        log_data[f"Noisy/{name}.weight"] = weight_noise
+                        log_data[f"Noisy/{name}.bias"] = bias_noise
+                        log_data[f"Noisy/{name}.weight_mu"] = module.weight_mu.abs().mean().item()
+                        log_data[f"Noisy/{name}.bias_mu"] = module.bias_mu.abs().mean().item()
+
 
                 # Action distribution (less frequent)
                 if self.game_steps % 2500 == 0:
-                    action_probs = torch.softmax(self.model(samples["states"][0:1]), dim=1).squeeze()
+                    action_probs = torch.softmax(self.model(states), dim=1).squeeze()
                     for action in range(self.nb_actions):
-                        log_data[f"Rainbow/Action_{action}_Prob"] = action_probs[action].item()
+                        log_data[f"Rainbow/Action_{action}_Prob"] = action_probs[action].mean().item() 
+                        #plot the softmax probability for each action for a random state
+                        #could help see how confident the network is
+                    #log the entropy
+                    log_data["Rainbow/Atom_Entropy"] = -(action_probs * torch.log(action_probs + 1e-6)).sum(-1).mean().item(),
                 
+                #plot return distribution and probabilities of the entire atom size space
+                if self.game_steps % 2000 == 0: #5000
+                    atom_probs = probs.mean(dim=0).cpu().numpy()
+                    support = self.support.to("cpu").numpy()
+                    
+                    log_data["Rainbow/Return_Probability_Distribution"] = wandb.plot.line(
+                        wandb.Table(
+                            columns=["Return_Value", "Probability"],
+                            data=list(zip(support, atom_probs))
+                        ),
+                        x="Return_Value",
+                        y="Probability",
+                        title="Return Probability Distribution"
+                    )
+                # Log how much probability mass falls in different support regions
+                if self.game_steps % 2000 == 0:
+                    low = probs[:, :10].sum(dim=-1).mean().item()    # Mass in [-35, -8]
+                    mid = probs[:, 10:40].sum(dim=-1).mean().item() # Mass in (-8, 50]
+                    high = probs[:, 40:].sum(dim=-1).mean().item()  # Mass in (50, 100]
+                    
+                    log_data.update({
+                        "Rainbow/Support_Low_Mass": low,
+                        "Rainbow/Support_Mid_Mass": mid,
+                        "Rainbow/Support_High_Mass": high,
+                    })
+
+                    atom_probs = probs.mean(dim=0).cpu().numpy()
+                    top10_indices = np.argsort(atom_probs)[-10:][::-1] #Indices sorted descending
+                    #top10_probs = atom_probs[top10_indices] #Corresponding probabilities
+
+                    support_np = self.support.cpu().numpy().copy()  
+                    #top10_returns = support_np[top10_indices]
+
+                    top10_data = []
+                    # Create a table
+
+                    for idx in top10_indices:
+                        top10_data.append([
+                            idx,                          # Atom index (0–50)
+                            support_np[idx],      # Return value (e.g., +10.0)
+                            atom_probs[idx]                # Probability
+                        ])
+                    
+                    log_data["Rainbow/Top5_Atoms_Table"] = wandb.Table(
+                        columns=["Atom_Index", "Return_Value", "Probability"],
+                        data=top10_data
+                    )
             wandb.log(log_data, commit=False)
         
         #clip gradient after the graphs as the graphs need to show the real gradient
-        clip_grad_norm_(self.model.parameters(),10.0) #prevent exploding gradient
+        clip_grad_norm_(self.model.parameters(),self.clip_grad_norm) #prevent exploding gradient
 
         self.optimizer.step()
 
-        #PER: update priorities
+        #PER: update priorities. The prioritirisation is based on Loss, not on TD error
         loss_for_prior = element_loss.detach().cpu().numpy()
         new_priorities = loss_for_prior + self.prior_eps # a small number added at the end to make sure its never 0
         self.memory.update_priorities(indices,new_priorities,self.game_steps)
@@ -604,9 +733,11 @@ class Agent_Rainbow:
                 0, (u + offset).view(-1), (next_dist * (b - l.float())).view(-1)
             )
 
-        dist = self.model.dist(states)
-        log = torch.log(dist[range(self.batch_size), actions])
-        element_loss = -(proj_dist * log).sum(1) #different loss function compared to MSE
+        dist = self.model.dist(states) #for each state, predict a prob distribution over possible returns, shape [batch_size,num_actions,num_atoms]
+        log = torch.log(dist[range(self.batch_size), actions]) #select the prob distributions only for the actions actually taken, then take a log
+        element_loss = -(proj_dist * log).sum(1) #multiply the target distribution with what model actually predicted. proj_dist is the
+        # mathematically correct distribution after seeing the reward. Loss measures how suprised we are, so the further off the predictions
+        # the worse the loss.then sum it up to get a cross entropy loss per experience. loss is small when predictions match targets
 
         return element_loss
 
@@ -649,8 +780,9 @@ class Agent_Rainbow:
 
                 #PER: update beta, make it go closer to 1 as towards the end of training as we want 
                 # more unbiased updates to prevent overfitting
-                fraction = min(epoch/epochs,1.0)
-                self.beta = self.beta + fraction * (1.0 - self.beta)
+                self.beta = min(self.initial_beta + (1.0 - self.initial_beta) * (self.game_steps / self.beta_decay_steps), 1.0)
+
+
                 #actual training part
                 #can take out of memory only if sufficient size
                 if self.memory.can_sample():    

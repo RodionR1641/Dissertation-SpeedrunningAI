@@ -115,13 +115,12 @@ def load_models(weights_filename="models/ppo/ppo_latest.pth"):
 
 
 def parse_args():
-    # fmt: off
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp-name", type=str, default="PPO_experiment",
         help="the name of this experiment")
     parser.add_argument("--gym-id", type=str, default="SuperMarioBros-1-1-v0",
         help="the id of the gym environment")
-    parser.add_argument("--learning-rate", type=float, default=2.5e-4,
+    parser.add_argument("--learning-rate", type=float, default=1e-4,
         help="the learning rate of the optimizer")
     parser.add_argument("--seed", type=int, default=777,
         help="seed of the experiment")
@@ -152,24 +151,26 @@ def parse_args():
     parser.add_argument("--num-envs", type=int, default=8, #number of sub environments in a vector environment
         help="the number of parallel game environments")
     
-    parser.add_argument("--num-steps", type=int, default=128,
+    parser.add_argument("--num-steps", type=int, default=512,
         help="the number of steps to run in each environment per policy rollout") # control the number of data to collect for EACH policy rollout
     # total data = num_steps * num_envs . This is our BATCH_SIZE
-    parser.add_argument("--anneal-lr", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+
+    #annealing is another hyperparameter, plus can discourage agent later on trying new stuff. keep it simple
+    parser.add_argument("--anneal-lr", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="Toggle learning rate annealing for policy and value networks")
     parser.add_argument("--gae", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="Use GAE for advantage computation")
-    parser.add_argument("--gamma", type=float, default=0.99,
+    parser.add_argument("--gamma", type=float, default=0.9,
         help="the discount factor gamma")
-    parser.add_argument("--gae-lambda", type=float, default=0.95,
+    parser.add_argument("--gae-lambda", type=float, default=1.0,  #0.95,
         help="the lambda for the general advantage estimation")
-    parser.add_argument("--num-minibatches", type=int, default=6, #keep minibatches 170(1024/6) steps, good for CNNs
+    parser.add_argument("--num-minibatches", type=int, default=8, #keep minibatches 170(1024/6) steps, good for CNNs
         help="the number of mini-batches")
-    parser.add_argument("--update-epochs", type=int, default=8, #compensates for smaller minibatches
+    parser.add_argument("--update-epochs", type=int, default=10,
         help="the K epochs to update the policy") # ///
     parser.add_argument("--norm-adv", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="Toggles advantages normalization")
-    parser.add_argument("--clip-coef", type=float, default=0.1,
+    parser.add_argument("--clip-coef", type=float, default=0.2,
         help="the surrogate clipping coefficient")
     parser.add_argument("--clip-vloss", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="Toggles whether or not to use a clipped loss for the value function, as per the paper.")
@@ -177,9 +178,9 @@ def parse_args():
         help="coefficient of the entropy")
     parser.add_argument("--vf-coef", type=float, default=0.5,
         help="coefficient of the value function")
-    parser.add_argument("--max-grad-norm", type=float, default=1.0,
+    parser.add_argument("--max-grad-norm", type=float, default=0.5, #0.5 is safer
         help="the maximum norm for the gradient clipping")
-    parser.add_argument("--target-kl", type=float, default=0.05, #0.05 is quite lenient TODO: double check this
+    parser.add_argument("--target-kl", type=float, default=None, #0.03 is quite lenient, but KL divergence stopping can be brittle, maybe stop exploration
         help="the target KL divergence threshold")
     
     args = parser.parse_args()

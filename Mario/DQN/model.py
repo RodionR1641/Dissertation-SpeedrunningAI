@@ -33,6 +33,10 @@ class MarioNet(nn.Module):
         flat_size = self.get_flat_size(input_shape)
         print("flattened size = "+str(flat_size))
         
+        self.hidden = nn.Linear(flat_size,512)
+        self.action_value = nn.Linear(512,nb_actions)
+        self.state_value = nn.Linear(512,1)
+        """
         #value of the image state
         self.action_value1 = nn.Linear(flat_size,1024) # 1024 neurons we use in fully connected layer
         #want more of these hidden layers
@@ -43,7 +47,7 @@ class MarioNet(nn.Module):
         self.state_value1 = nn.Linear(flat_size,1024)
         self.state_value2 = nn.Linear(1024,1024)
         self.state_value3 = nn.Linear(1024,1) # single value output, tells us if given state is valuable to the agent
-
+        """
         self.device = device
         self.to(self.device)
     #function that gets called when network is being called
@@ -60,6 +64,7 @@ class MarioNet(nn.Module):
         x = self.relu(self.conv3(x))
         x = self.flatten(x) #basically take multidimensional array and turn it into 1D
 
+        """
         #we can reuse x and state_value as relu and dropout dont have any parameters to learn anyway
         # the state_value1,state_value2 etc actually learns the necessary parameters
         # basically get output from these layers, 
@@ -79,7 +84,11 @@ class MarioNet(nn.Module):
         #action_value = self.dropout(action_value)
         action_value = self.action_value3(action_value) #dont have relu on last layer as dont want to limit
         #to only negative actions
-        
+        """
+        hidden = self.relu(self.hidden(x))
+        action_value = self.action_value(hidden)
+        state_value = self.state_value(hidden)
+
         #action_value is array of values, we will be selecting the highest of them
         # so substract action_value mean from action_value array so we get a representation of the value of the choices 
         # substract from mean -> can tell how useful an action is compared to the rest

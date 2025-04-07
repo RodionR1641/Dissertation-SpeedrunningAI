@@ -40,7 +40,7 @@ def parse_args():
     parser.add_argument("--resume-run", type=lambda x: bool(strtobool(x)), default= True , nargs="?", const=True,
         help="set to true if just want to test the agent playing the game")
     #agent type
-    parser.add_argument("--agent-type", type=int, default=0,
+    parser.add_argument("--agent-type", type=int, default=1,
         help="tells which DQN agent to use: 0=dueling double, 1=rainbow, 2=rainbow with RND")
     
 
@@ -49,13 +49,13 @@ def parse_args():
     # Algorithm specific arguments
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
-    parser.add_argument("--learning-rate", type=float, default=1e-5,
+    parser.add_argument("--learning-rate", type=float, default=0.0000625,
         help="the learning rate of the optimizer")
-    parser.add_argument("--memory-capacity", type=int, default=50_000,
+    parser.add_argument("--memory-capacity", type=int, default=1_000_000, #50_000
         help="number of experiences stored in replay buffer"),
-    parser.add_argument("--memory-capacity-rainbow", type=int, default=50_000,
+    parser.add_argument("--memory-capacity-rainbow", type=int, default=1_000_000,
         help="number of experiences stored in replay buffer"),
-    parser.add_argument("--batch-size", type=int, default=128, #higher batch size than the usually used 32
+    parser.add_argument("--batch-size", type=int, default=32,
         help="number of experiences sampled each time for training"),
     parser.add_argument("--epsilon", type=float, default=1.0,
         help="the starting epsilon value"),
@@ -63,20 +63,20 @@ def parse_args():
         help="the minimum epsilon value"),
     parser.add_argument("--nb-warmup", type=int, default=250_000,
         help="number of timesteps where epsilon decreases from starting to end value"),
-    parser.add_argument("--sync-network-rate", type=int, default=100,
+    parser.add_argument("--sync-network-rate", type=int, default=32_000,
         help="how often(timesteps) the target network copies the online network"),
     parser.add_argument("--use-vit", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="decide if using vit or not for model"),
     #rainbow and rnd specific
-    parser.add_argument("--v-min", type=int, default=0,
+    parser.add_argument("--v-min", type=int, default=-35,
         help="min value of support for categorical DQN"),
-    parser.add_argument("--v-max", type=int, default=200,
+    parser.add_argument("--v-max", type=int, default=100,
         help="max value of support for categorical DQN"),
     parser.add_argument("--atom-size", type=int, default=51,
         help="the unit number of support"),
-    parser.add_argument("--alpha", type=float, default=0.2,
+    parser.add_argument("--alpha", type=float, default=0.5,
         help="controls how important prioritised sampling is"),
-    parser.add_argument("--beta", type=float, default=0.6,
+    parser.add_argument("--beta", type=float, default=0.4,
         help="controls the weight "),
     parser.add_argument("--prior-eps", type=float, default=1e-6,
         help="small value to make sure every experience has chance of being selected"),
@@ -109,12 +109,17 @@ if __name__ == "__main__":
 
     #parser args setup and seed
     use_vit = args.use_vit
-    environment = DQN_Mario(use_vit=use_vit,seed=args.seed)
+
+    agent_type = args.agent_type
+    
+    if agent_type == 2:
+        environment = DQN_Mario(use_vit=use_vit,seed=args.seed,rnd=True)
+    else:
+        environment = DQN_Mario(use_vit=use_vit,seed=args.seed)
     num_actions = environment.action_num
     testing = args.testing
     resume_run = args.resume_run
     seed_run()
-    agent_type = args.agent_type
 
     #choose which agent type to train
 
@@ -140,6 +145,7 @@ if __name__ == "__main__":
                     env=environment,
                     device=device,
                     nb_actions=num_actions,
+                    adam_epsilon=1.5e-4,
                     memory_capacity=args.memory_capacity_rainbow,
                     batch_size=args.batch_size,
                     learning_rate=args.learning_rate,
@@ -209,7 +215,7 @@ if __name__ == "__main__":
                     entity=args.wandb_entity,
                     config=vars(args),
                     name=run_name,
-                    monitor_gym=True, # Monitors videos, but for old gym. Doesn't work now
+                    monitor_gym=False, # Monitors videos, but for old gym. Doesn't work now
                     save_code=True
                 )
                 print(f"Resumed existing run with ID: {run_id}")
@@ -220,7 +226,7 @@ if __name__ == "__main__":
                     entity=args.wandb_entity,
                     config=vars(args),
                     name=run_name,
-                    monitor_gym=True, # Monitors videos, but for old gym. Doesn't work now
+                    monitor_gym=False, # Monitors videos, but for old gym. Doesn't work now
                     save_code=True
                 )
                 print(f"Started new run with ID: {run.id}")

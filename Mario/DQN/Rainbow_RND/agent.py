@@ -4,7 +4,7 @@ import os
 import torch.optim as optim
 import numpy as np
 import time
-from Rainbow_RND.rainbow_model import MarioNet, RND_model
+from Rainbow_RND.rainbow_model import MarioNet, RND_model, NoisyLinear
 from model_mobile_vit import MarioNet_ViT
 from collections import deque
 from segment_tree import MinSegmentTree, SumSegmentTree
@@ -70,6 +70,11 @@ class ReplayBuffer():
         reward, next_state,done = self.get_n_step_info(self.step_storage,self.gamma)
 
         state, action = self.step_storage[0][:2]
+
+        #Convert CUDA tensor to CPU NumPy array
+        if torch.is_tensor(state):
+            state = state.cpu().numpy()
+            next_state = next_state.cpu().numpy()
 
         self.state_storage[self.ptr] = state 
         self.next_state_storage[self.ptr] = next_state
@@ -184,35 +189,70 @@ class PrioritisedMemory(ReplayBuffer):
         #get the weight of each experience at this index
         weights = np.array([self.calculate_weight(index,beta) for index in indices])
 
-        if game_steps % 500 == 0:
-            
-            # Get priorities for THIS BATCH (not historical)
-            batch_priorities = np.array([self.sum_tree[idx] for idx in indices])
-            raw_priorities = batch_priorities ** (1/self.alpha)  # Reverse alpha scaling to get raw data given for priorities
-        
+        if game_steps % 500 == 0: #500
+            batch_stats = self.get_priority_stats(full_buffer=False,indices=indices)
+
             wandb.log({
                 "game_steps": game_steps,
-                # Priority stats (raw values, not alpha-scaled)
-                "PER/Priority_mean": np.mean(raw_priorities),
-                "PER/Priority_max": np.max(raw_priorities),
-                "PER/Priority_min": np.min(raw_priorities),
-                # IS weights
-                "PER/IS_Weight_mean": np.mean(weights),
-                "PER/IS_Weight_max": np.max(weights),
-                # Scatter plot (every 5K steps)
+                "PER_Batch/Priority_Mean": batch_stats['mean'],
+                "PER_Batch/Priority_Max": batch_stats['max'],
+                "PER_Batch/Priority_Min": batch_stats['min'],
+                #weight stats
+                "PER_Batch/IS_Weight_mean": np.mean(weights),
+                "PER_Batch/IS_Weight_max": np.max(weights),
+                "PER_Batch/IS_Weight_min": np.min(weights),
+                "PER_Batch/IS_Weight_std": np.std(weights),
+                "PER_Batch/Effective_Batch_Size": (weights > 0.1).sum(),  # How many samples have significant weight
+                # Scatter plot (every 2.5K steps)
                 **({
-                    "PER/Priority_vs_Weight": wandb.plot.scatter(
+                    "PER_Batch/Priority_vs_Weight": wandb.plot.scatter(
                         wandb.Table(
                             columns=["Priority", "IS_Weight"],
-                            data=list(zip(raw_priorities, weights))
+                            data=list(zip(batch_stats['raw_priorities'], weights))
                         ),
                         x="Priority",
                         y="IS_Weight",
                         title="Priority vs. IS Weight"
                     )
-                } if game_steps % 2000 == 0 else {})
-            }, commit=False)
+                } if game_steps % 2500 == 0 else {}) #2500
 
+            },commit=False)    
+
+            min_p, max_p = np.min(weights), np.max(weights)
+            bins = np.linspace(min_p, max_p, 50)  # 50 evenly spaced bins
+
+            wandb.log({
+                "PER_Batch/IS_Weight_Hist": wandb.Histogram(
+                    np_histogram=np.histogram(weights, bins=bins)
+                )
+            }, commit=False)
+        
+        if game_steps % 10000 == 0: #10,000
+            full_stats = self.get_priority_stats(full_buffer=True)
+            priorities = full_stats['raw_priorities']
+
+            wandb.log({
+                "game_steps": game_steps,
+                "PER_Full/Priority_Mean": full_stats['mean'],
+                "PER_Full/Priority_Max": full_stats['max'],
+                "PER_Full/Priority_Min": full_stats['min'],
+                "PER_Full/PriorityP90": full_stats['p90'],
+                "PER_Full/Priority_Spread": full_stats['max'] / (full_stats['mean'] + 1e-6), #how much max and min differ
+                "PER_Full/HighPriority_Ratio": np.sum(priorities > full_stats['p90'])/len(self), #percentage of 
+                #priorities falling outside the 90% range
+                "PER_Full/Global_Active_Size": len(self),  # Current buffer size
+
+            },commit=False)  
+
+            min_p, max_p = np.min(priorities), np.max(priorities)
+            bins = np.linspace(min_p, max_p, 50)  # 50 evenly spaced bins
+
+            wandb.log({
+                "PER_Full/Priority_Hist": wandb.Histogram(
+                    np_histogram=np.histogram(priorities, bins=bins)
+                )
+            }, commit=False)
+        
         return dict(states=states,
             next_states=next_states,
             actions=actions,
@@ -220,6 +260,29 @@ class PrioritisedMemory(ReplayBuffer):
             dones=dones,
             weights=weights,
             indices=indices,)
+    
+    def get_priority_stats(self, full_buffer=False,indices=None):
+        """Returns priority statistics for either current batch or full buffer"""
+        if full_buffer:
+            # Full buffer scan (use sparingly)
+            priorities = np.array([self.sum_tree[idx] ** (1/self.alpha) 
+                                for idx in range(len(self))])
+        else:
+            # Current batch only, selected indices
+            if not indices:
+                indices = self.sample_proportional()
+            
+            priorities = np.array([self.sum_tree[idx] ** (1/self.alpha) 
+                                for idx in indices])
+        
+        return {
+            'mean': np.mean(priorities),
+            'max': np.max(priorities),
+            'min': np.min(priorities),
+            'p90': np.percentile(priorities, 90),
+            'raw_priorities': priorities  # Raw values for histogram
+        }
+
     
     def update_priorities(self, indices, priorities,game_steps):
         #Update priorities of sampled transitions based on td error
@@ -234,13 +297,6 @@ class PrioritisedMemory(ReplayBuffer):
 
             self.max_priority = max(self.max_priority, priority)# update our max priority in case this is higher
         
-        #track the current size of buffer and max priority
-        if game_steps % 500 == 0:
-            wandb.log({
-                "game_steps": game_steps,
-                "PER/Global_Max_Priority": self.max_priority,
-                "PER/Global_Active_Size": len(self),  # Current buffer size
-            },commit=False)
 
     #sample indices based on proportions 
     def sample_proportional(self):
@@ -300,20 +356,22 @@ class Agent_Rainbow_RND:
                  device="cpu",
                  nb_actions=5,
                  memory_capacity=50_000,
-                 batch_size=32,
+                 batch_size=128,
                  learning_rate=1e-5,
                  gamma=0.99,
-                 sync_network_rate=1_000,
+                 sync_network_rate=32_000,
+                 beta_decay_steps = 10_000_000, #the steps at which beta goes from initial value to 1.0
                  #Categorical DQN parameters
                  v_min=0.0,
                  v_max=200.0,
                  atom_size=51,
                  #Prioritised Experience Replay parameters
                  alpha=0.2,
-                 beta=0.6,
+                 beta=0.4,
                  prior_eps=1e-6,
                  # N-step learning
                  n_step=3,
+                 clip_grad_norm = 1.0, #max gradient update value
                  # Decide if to use a vit feature network or not
                  use_vit=False,
                  ):
@@ -325,6 +383,11 @@ class Agent_Rainbow_RND:
         
         #if loading models, then continue from the epoch left off at training. otherwise start from scratch
         self.curr_epoch = 1
+
+        self.initial_beta = beta
+        self.beta_decay_steps = beta_decay_steps
+
+        self.clip_grad_norm = clip_grad_norm
 
         #hyperparameters for learning
         self.learning_rate = learning_rate
@@ -490,8 +553,10 @@ class Agent_Rainbow_RND:
         loss_rnd.backward()
 
         if self.game_steps % 500 == 0:
+
             self.plot_gradient_norms(self.model_rnd,rnd=True) #plot gradient norms for rnd
 
+        clip_grad_norm_(self.model_rnd.parameters(),self.clip_grad_norm)
         self.optimizer_rnd.step()
 
         self.optimizer.zero_grad()
@@ -499,9 +564,59 @@ class Agent_Rainbow_RND:
         ep_loss = loss.item()
 
         if self.game_steps % 500 == 0:
+
+            with torch.no_grad():
+                states = torch.tensor(samples["states"], dtype=torch.float32, device=self.device)
+                actions = torch.tensor(samples["actions"], dtype=torch.long, device=self.device) #long tensor for actions
+                dist = self.model.dist(states)
+                probs = torch.softmax(dist[range(self.batch_size), actions ], dim=-1) #softmax so easy to compare the distribution, all add up to 1 
+                expected_q = (probs * self.support).sum(-1)
+
+                if self.use_n_step:
+                    n_step_samples = self.n_memory.sample_batch_idxs(indices)
+                    n_step_gamma = self.gamma ** self.n_step
+                    n_step_td = self.compute_dqn_loss(n_step_samples, n_step_gamma)
+
+                log_data = {
+                    "game_steps": self.game_steps,
+                    
+                    # Distributional RL
+                    "Rainbow/Expected_Q_Avg": expected_q.mean().item(),
+                    "Rainbow/Atoms_Std": probs.std(dim=-1).mean().item(),
+                    "Rainbow/Expected_Q_Std": expected_q.std().item(),
+
+                    # N-step (if used)
+                    "Rainbow/N_Step_Gamma": self.gamma ** self.n_step if self.use_n_step else 0,
+                    "Rainbow/N_Step_TD_Avg": n_step_td.mean().item(),
+                    "Rainbow/N_Step_TD_Ratio": n_step_td.mean().item() / element_loss.mean().item()
+                }
+                #noisy net data
+                for name, module in self.model.named_modules():
+                    if isinstance(module, NoisyLinear):
+                        # Calculate current effective noise magnitude
+                        weight_noise = (module.weight_sigma * module.weight_epsilon).std().item()
+                        bias_noise = (module.bias_sigma * module.bias_epsilon).std().item()
+                        
+                        log_data[f"Noisy/{name}.weight"] = weight_noise
+                        log_data[f"Noisy/{name}.bias"] = bias_noise
+                        log_data[f"Noisy/{name}.weight_mu"] = module.weight_mu.abs().mean().item()
+                        log_data[f"Noisy/{name}.bias_mu"] = module.bias_mu.abs().mean().item()
+
+
+                # Action distribution (less frequent)
+                if self.game_steps % 2500 == 0:
+                    action_probs = torch.softmax(self.model(states), dim=1).squeeze()
+                    for action in range(self.nb_actions):
+                        log_data[f"Rainbow/Action_{action}_Prob"] = action_probs[action].mean().item() 
+                        #plot the softmax probability for each action for a random state
+                        #could help see how confident the network is
+                    #log the entropy
+                    log_data["Rainbow/Atom_Entropy"] = -(action_probs * torch.log(action_probs + 1e-6)).sum(-1).mean().item(),
+            wandb.log(log_data, commit=False)
+
             self.plot_gradient_norms(self.model) #plot gradient
         #clip gradient after the graphs as the graphs need to show the real gradient
-        clip_grad_norm_(self.model.parameters(),10.0) #prevent exploding gradient
+        clip_grad_norm_(self.model.parameters(),self.clip_grad_norm) #prevent exploding gradient
 
         self.optimizer.step()
 
@@ -538,13 +653,13 @@ class Agent_Rainbow_RND:
                 "game_steps": self.game_steps,
                 "Gradient_rnd/gradient_norm_total": total_norm,
                 **{f"Gradient_rnd/gradients/gradient_{name}": norm for name, norm in layer_norms.items()}
-            })
+            },commit=False)
         else:
             wandb.log({
                 "game_steps": self.game_steps,
                 "Gradient/gradient_norm_total": total_norm,
                 **{f"Gradient/gradients/gradient_{name}": norm for name, norm in layer_norms.items()}
-            })
+            },commit=False)
 
     #return categorical dqn loss
     def compute_dqn_loss(self,samples,gamma):
@@ -664,8 +779,8 @@ class Agent_Rainbow_RND:
 
                 #PER: update beta, make it go closer to 1 as towards the end of training as we want 
                 # more unbiased updates to prevent overfitting
-                fraction = min(epoch/epochs,1.0)
-                self.beta = self.beta + fraction * (1.0 - self.beta)
+                self.beta = min(self.initial_beta + (1.0 - self.initial_beta) * (self.game_steps / self.beta_decay_steps), 1.0)
+
                 #actual training part
                 #can take out of memory only if sufficient size
                 if self.memory.can_sample():    
@@ -685,7 +800,7 @@ class Agent_Rainbow_RND:
                         # Log by game_steps (fine-grained steps)
                         "Charts/episodic_return": episodic_reward,
                         "Charts/episodic_length": episodic_len,
-                    })  # Default x-axis is game_steps
+                    },commit=False)  # Default x-axis is game_steps
 
                     if info["flag_get"] == True:
                         self.num_completed_episodes += 1
@@ -696,7 +811,7 @@ class Agent_Rainbow_RND:
                             "episodes": episodes,
                             "Charts/time_complete": info["time"],
                             "Charts/completion_rate": self.num_completed_episodes / episodes,
-                        })
+                        },commit=False)
 
                         if info["time"] > self.best_time_episode:
                             #find the previous file with this old best time
@@ -740,7 +855,7 @@ class Agent_Rainbow_RND:
                 })
 
             #gatherin stats
-            if epoch % 10 == 0:
+            if epoch % 1 == 0:
                 print("")
                 if loss_count > 0:
                     print(f"Episode return = {episodic_return}, Episode len = {episodic_len},  \
