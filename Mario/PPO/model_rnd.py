@@ -8,7 +8,7 @@ from torch.distributions.categorical import Categorical
 class MarioNet(nn.Module):
     def __init__(self,envs,input_shape,device="cpu"):
         super(MarioNet,self).__init__()
-        """
+        
         self.cnn = nn.Sequential(
             layer_init(nn.Conv2d(input_shape[0],32,8,stride=4)),
             nn.ReLU(),
@@ -21,20 +21,7 @@ class MarioNet(nn.Module):
             layer_init(nn.Linear(64*7*7, 512)), # get reduced into a 7x7 image with 64 channels 
             nn.ReLU(),
         )
-        """
-        self.cnn = nn.Sequential(
-            layer_init(nn.Conv2d(input_shape[0],32,3,stride=2,padding=1)),
-            nn.ReLU(),  
-            layer_init(nn.Conv2d(32,32,3,stride=2,padding=1)),
-            nn.ReLU(),
-            layer_init(nn.Conv2d(32,32,3,stride=2,padding=1)),
-            nn.ReLU(),
-            layer_init(nn.Conv2d(32,32,3,stride=2,padding=1)),
-            nn.ReLU(),  
-            nn.Flatten(),
-            layer_init(nn.Linear(32*6*6, 512)), # get reduced into a 7x7 image with 64 channels 
-            nn.ReLU(),
-        )
+        
         
         self.critic = nn.Linear(512,1)
         self.actor = nn.Linear(512,envs.single_action_space.n)
@@ -77,3 +64,56 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0): #use sqrt 2 as standard d
     torch.nn.init.orthogonal_(layer.weight,std)
     torch.nn.init.constant_(layer.bias,bias_const)
     return layer
+
+
+#calculates the intrinsic reward: make a prediction on a given state and see 
+# how well the learned model matches a random target
+class RND_model(nn.Module):
+    def __init__(self,
+                 input_shape
+                 ,device="cpu"
+                 ):
+        super(RND_model,self).__init__()
+
+        self.relu = nn.ReLU()
+
+        self.feature_layer = nn.Sequential(
+            nn.Conv2d(input_shape[0],32,kernel_size=(8,8),stride=(4,4)),
+            nn.ReLU(),
+            nn.Conv2d(32,64,kernel_size=(4,4),stride=(2,2)),
+            nn.ReLU(),
+            nn.Conv2d(64,64,kernel_size=(3,3),stride=(1,1)),
+            nn.ReLU(),
+        )
+
+        self.flatten = nn.Flatten()        
+        flat_size = get_flat_size(input_shape,self.feature_layer)
+        
+        self.fc1 = nn.Linear(flat_size,512)
+        self.out_layer = nn.Linear(512,512)
+        self.device = device
+        self.to(device)
+
+    def forward(self,x):
+        if x.device != self.device:
+            x.to(self.device)
+
+        x = x/255.0 #normalise to be between 0 and 1
+        x.to(self.device)
+        x = self.feature_layer(x)
+        x = self.flatten(x)
+
+        x = self.relu(self.fc1(x))
+        #x = self.relu(self.fc2(x))
+        x = self.out_layer(x)
+        return x
+    
+def get_flat_size(input_shape,feature_layer):
+#pass dummy input through conv layers to get flatten size dynamically
+
+    with torch.no_grad():#no gradient computation, just a dummy pass
+        dummy_input = torch.zeros(1,*input_shape)
+        x = feature_layer(dummy_input)
+        flatten = nn.Flatten() #need instance of this to calculate shape
+        flattened_x = flatten(x)
+        return flattened_x.shape[1]

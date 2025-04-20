@@ -11,7 +11,7 @@ import random
 class Mario(gym.Wrapper):
     #rgb_array gives pixel info of game for us to work with
     # human mode actually allows to see
-    def __init__(self,device='cpu',env_id="SuperMarioBros-1-1-v0",seed=None,num_stack=4):
+    def __init__(self,device='cpu',env_id="SuperMarioBros-1-1-v0",seed=None,num_stack=4,use_vit=False):
         SIMPLE_MOVEMENT.append(['down']) #there is a skip on some levels mario can make with a down action
         
         env = gym_super_mario_bros.make(env_id)
@@ -34,7 +34,10 @@ class Mario(gym.Wrapper):
         # wrapper treats every end of life as end of that episode. So, if any life is lost episode ends. But reset is called only if lives are exhausted
         env = EpisodicLifeEnv(env=env) # treat 
         #apply wrappers for preprocessing of images
-        env = ResizeObservation(env,(84,84)) # for efficiency
+        if(use_vit):
+            env = ResizeObservation(env,(224,224))
+        else:
+            env = ResizeObservation(env,(84,84)) # for efficiency
         env = GrayScaleObservation(env)
         env = FrameStack(env,num_stack=num_stack,lz4_compress=True) #stack 4 past observations together as a single observation. Helps agent identify velocities of objects
 
