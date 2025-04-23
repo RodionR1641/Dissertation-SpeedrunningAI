@@ -36,18 +36,6 @@ class MarioNet(nn.Module):
         self.hidden = nn.Linear(flat_size,512)
         self.action_value = nn.Linear(512,nb_actions)
         self.state_value = nn.Linear(512,1)
-        """
-        #value of the image state
-        self.action_value1 = nn.Linear(flat_size,1024) # 1024 neurons we use in fully connected layer
-        #want more of these hidden layers
-        self.action_value2 = nn.Linear(1024,1024)
-        self.action_value3 = nn.Linear(1024,nb_actions) # nb_actions output -> probability of actions selected
-
-        #now do similar for State value
-        self.state_value1 = nn.Linear(flat_size,1024)
-        self.state_value2 = nn.Linear(1024,1024)
-        self.state_value3 = nn.Linear(1024,1) # single value output, tells us if given state is valuable to the agent
-        """
         self.device = device
         self.to(self.device)
     #function that gets called when network is being called
@@ -64,27 +52,6 @@ class MarioNet(nn.Module):
         x = self.relu(self.conv3(x))
         x = self.flatten(x) #basically take multidimensional array and turn it into 1D
 
-        """
-        #we can reuse x and state_value as relu and dropout dont have any parameters to learn anyway
-        # the state_value1,state_value2 etc actually learns the necessary parameters
-        # basically get output from these layers, 
-        state_value = self.relu(self.state_value1(x))
-        
-        #removing dropout - Not that useful for RL anyway, Rl usually has no problem with overfitting but stability and convergence
-        #state_value = self.dropout(state_value)
-        state_value = self.relu(self.state_value2(state_value))
-        #state_value = self.dropout(state_value)
-        state_value = self.state_value3(state_value) #no relu
-        #no dropout in the end. It is used to avoid overfitting, but dont want it in final prediction. If we get e.g one/4 value
-        #, dont want it to be dropped 0.2 percent of the time. not useful for learning
-
-        action_value = self.relu(self.action_value1(x))
-        #action_value = self.dropout(action_value)
-        action_value = self.relu(self.action_value2(action_value))
-        #action_value = self.dropout(action_value)
-        action_value = self.action_value3(action_value) #dont have relu on last layer as dont want to limit
-        #to only negative actions
-        """
         hidden = self.relu(self.hidden(x))
         action_value = self.action_value(hidden)
         state_value = self.state_value(hidden)

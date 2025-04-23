@@ -102,9 +102,9 @@ class Agent:
                  nb_actions=5,
                  memory_capacity=100_000,
                  batch_size=32,
-                 learning_rate=0.00020,
+                 learning_rate=0.00025,
                  gamma=0.99,
-                 sync_network_rate=32_000,
+                 sync_network_rate=10_000,
                  use_vit=False
                  ):
 
@@ -133,7 +133,9 @@ class Agent:
         #epsilon hyper parameters - update epsilon at every time step.
         self.epsilon = epsilon
         self.min_epsilon = min_epsilon
-        self.epsilon_decay = 0.99999975#1- (((epsilon - min_epsilon) / nb_warmup) *2) # linear decay rate, close to the nb_warmup steps count
+        self.epsilon_decay = (self.min_epsilon/self.epsilon) ** (1/self.nb_warmup) #exponential decay that slowly gets to min epslion over the course of nb_warmup steps
+        
+        self.grad_clip = 5
 
         self.game_steps = 0 #track how many steps taken over entire training
         self.num_completed_episodes = 0#how many games have ended in getting the flag
@@ -183,7 +185,7 @@ class Agent:
     def sync_networks(self):
         if self.game_steps % self.sync_network_rate == 0 and self.game_steps > 0:
             self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
-                
+
     #epochs = how many iterations to train for
     def train(self, epochs):
         
@@ -301,7 +303,7 @@ class Agent:
 
                         wandb.log(log_data, commit=False)
                     #clip gradient after the graphs as the graphs need to show the real gradient
-                    clip_grad_norm_(self.model.parameters(),10.0) #prevent exploding gradient
+                    clip_grad_norm_(self.model.parameters(),self.grad_clip) #prevent exploding gradient
 
                     self.optimizer.step()
                     self.decay_epsilon() #decay epsilon at each step in environment
@@ -439,6 +441,7 @@ class Agent:
             checkpoint = torch.load(weights_filename)
             self.model.load_state_dict(checkpoint["model_state_dict"])
             self.target_model.load_state_dict(checkpoint["target_model_state_dict"])
+            self.target_model.eval()
             self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
             self.curr_epoch = checkpoint["epoch"]
             self.epsilon = checkpoint["epsilon"]

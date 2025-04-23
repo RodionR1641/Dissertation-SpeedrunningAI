@@ -40,20 +40,8 @@ class MobileViTFeatureExtractor(nn.Module):
 
         # ViT forward
         x = self.model.patch_embed(x)
-        """
-        cls_token = self.model.cls_token.expand(x.shape[0], -1, -1)
-        x = torch.cat((cls_token, x), dim=1)
-        x = self.model.pos_drop(x + self.model.pos_embed)
-        x = self.model.blocks(x)
-        x = self.model.norm(x)
-        """
         return x[:, 0]  # Return class token
         
-        """
-        features = self.model(x)
-        features_last = features[-1]  # Get the last feature map
-        return features_last.flatten(start_dim=1)  # Flatten to have shape (batch_size, flattened_feature_num)
-        """
 
 class MarioNet(nn.Module):
     def __init__(self,envs,input_shape,device="cpu"):
@@ -99,66 +87,3 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0): #use sqrt 2 as standard d
     torch.nn.init.orthogonal_(layer.weight,std)
     torch.nn.init.constant_(layer.bias,bias_const)
     return layer
-
-
-
-
-"""
-class MarioNet(nn.Module):
-    def __init__(self, envs, input_shape, device="cpu"):
-        super().__init__()
-        # Load pretrained TinyViT (remove classification head)
-        self.tiny_vit = tiny_vit_5m(pretrained=True, num_classes=0)
-        
-        # Adjust for Atari (4-channel input)
-        self.tiny_vit.patch_embed.proj = nn.Conv2d(
-            input_shape[0], 64, kernel_size=4, stride=4, padding=0
-        )
-
-        # Verify output dim (384 for tiny_vit_5m)
-        dummy = torch.randn(1, *input_shape)
-        with torch.no_grad():
-            out_dim = self.tiny_vit(dummy).shape[-1]
-        
-        # Project ViT output (384-dim) to match your 512-dim
-        self.proj = layer_init(nn.Linear(out_dim, 512))
-        self.actor = layer_init(nn.Linear(512, envs.single_action_space.n), std=0.01)
-        self.critic = layer_init(nn.Linear(512, 1), std=1.0)
-
-        self.device = device
-        self.to(device)
-
-    def get_value(self,x):
-        if x.device != self.device:
-            x = x.to(self.device)
-        x = x /255.0
-        
-        # Forward pass through ViT
-        features = self.tiny_vit(x)
-        projected = self.proj(features)
-        
-        return self.critic(projected) #go through cnn first then critic
-
-    def get_action_plus_value(self,x,action=None):  
-        if x.device != self.device:
-            x.to(self.device)
-
-        x = x / 255
-        # Forward pass through ViT
-        features = self.tiny_vit(x)
-        projected = self.proj(features)
-
-        
-        logits = self.actor(projected) #unnormalised action probabilities   
-        probabilities = Categorical(logits=logits) #softmax operation to get the action probability distribution we need
-        if action is None:
-            action = probabilities.sample()
-        #return actions, log probabilities, entropies and values from critic
-        return action,probabilities.log_prob(action), probabilities.entropy(),self.critic(projected)
-
-
-def layer_init(layer, std=np.sqrt(2), bias_const=0.0): #use sqrt 2 as standard deviation
-    torch.nn.init.orthogonal_(layer.weight,std)
-    torch.nn.init.constant_(layer.bias,bias_const)
-    return layer
-"""

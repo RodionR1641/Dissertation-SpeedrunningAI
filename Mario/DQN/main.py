@@ -40,7 +40,7 @@ def parse_args():
     parser.add_argument("--resume-run", type=lambda x: bool(strtobool(x)), default= True , nargs="?", const=True,
         help="set to true if just want to test the agent playing the game")
     #agent type
-    parser.add_argument("--agent-type", type=int, default=1,
+    parser.add_argument("--agent-type", type=int, default=0,
         help="tells which DQN agent to use: 0=dueling double, 1=rainbow, 2=rainbow with RND")
     
 
@@ -49,9 +49,9 @@ def parse_args():
     # Algorithm specific arguments
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
-    parser.add_argument("--learning-rate", type=float, default=0.0000625,
+    parser.add_argument("--learning-rate", type=float, default=0.00025,
         help="the learning rate of the optimizer")
-    parser.add_argument("--memory-capacity", type=int, default=1_000_000, #50_000
+    parser.add_argument("--memory-capacity", type=int, default=100_000, #50_000
         help="number of experiences stored in replay buffer"),
     parser.add_argument("--memory-capacity-rainbow", type=int, default=1_000_000,
         help="number of experiences stored in replay buffer"),
@@ -63,7 +63,7 @@ def parse_args():
         help="the minimum epsilon value"),
     parser.add_argument("--nb-warmup", type=int, default=250_000,
         help="number of timesteps where epsilon decreases from starting to end value"),
-    parser.add_argument("--sync-network-rate", type=int, default=32_000,
+    parser.add_argument("--sync-network-rate", type=int, default=10_000,
         help="how often(timesteps) the target network copies the online network"),
     parser.add_argument("--use-vit", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="decide if using vit or not for model"),
