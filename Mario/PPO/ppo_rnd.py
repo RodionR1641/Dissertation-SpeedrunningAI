@@ -694,8 +694,10 @@ if __name__ == "__main__":
                 optimizer_rnd.zero_grad()
                 loss_rnd = torch.pow(intrinsic_predicted - intrinsic_true,2).mean()
                 loss_rnd.backward()
+                nn.utils.clip_grad_norm_(model_rnd.parameters(),args.max_grad_norm)
+                optimizer_rnd.step()
 
-                if game_steps % 1 == 0:
+                if game_steps % 500 == 0:
                     plot_gradient_norms(model_rnd,game_steps,rnd=True) #plot gradient norms for rnd
 
                     # Convert 2D tensor to flattened numpy array (example for intrinsic rewards)
@@ -711,52 +713,24 @@ if __name__ == "__main__":
 
                     # Log the histogram with proper axes
                     wandb.log({
-                        "intrinsic_rewards_distribution": wandb.plot.histogram(
+                        "RND/intrinsic_rewards_distribution": wandb.plot.histogram(
                             table_i, 
                             value="intrinsic_rewards",  # Column name from the table
                             title="Intrinsic Reward Distribution"
                         ),
                         # Optional: Log scalar metrics too
-                        "intrinsic_rewards_mean": np.mean(intrinsic_rewards_flat)
+                        "RND/intrinsic_rewards_mean": np.mean(intrinsic_rewards_flat)
                     })
 
                     wandb.log({
-                        "extrinsic_rewards_distribution": wandb.plot.histogram(
+                        "RND/extrinsic_rewards_distribution": wandb.plot.histogram(
                             table_e, 
                             value="extrinsic_rewards",  # Column name from the table
                             title="Extrinsic Reward Distribution"
                         ),
                         # Optional: Log scalar metrics too
-                        "extrinsic_rewards_mean": np.mean(extrinsic_rewards_flat)
+                        "RND/extrinsic_rewards_mean": np.mean(extrinsic_rewards_flat)
                     })
-
-                    """
-                    #plot rnd distribution of rewards
-                    b_intrinsic_rewards = intrinsic_rewards.reshape(-1).cpu().detach().numpy()  # Convert to numpy
-                    b_extrinsic_rewards = extrinsic_rewards.reshape(-1).cpu().detach().numpy()  # Convert to numpy
-                    
-                    wandb.log({
-                        "intrinsic_rewards": b_intrinsic_rewards,
-                        "intrinsic_rewards_hist": wandb.Histogram(b_intrinsic_rewards)
-                    })
-
-                    wandb.log({
-                        "extrinsic_rewards": b_extrinsic_rewards,
-                        "extrinsic_rewards_hist": wandb.Histogram(b_extrinsic_rewards),
-                    })
-                    """
-
-
-                nn.utils.clip_grad_norm_(model_rnd.parameters(),args.max_grad_norm)
-                optimizer_rnd.step()
-                """
-                #RND loss calculation: 
-                optimizer_rnd.zero_grad()
-                rnd_loss = b_intrinsic_rewards[mb_inds].mean()
-                rnd_loss.backward(retain_graph=True)
-                nn.utils.clip_grad_norm_(model_rnd.parameters(), args.max_grad_norm)
-                optimizer_rnd.step()
-                """
 
                 #backpropagation and optimising now for PPO loss
                 optimizer.zero_grad()
