@@ -33,8 +33,6 @@ if torch.cuda.is_available():
 else:
 	print("cuda not available")
 
-#logging.info(f"device is {device}")
-
 print("PyTorch Version:", torch.__version__)
 print("CUDA Available:", torch.cuda.is_available())
 print("CUDA Version:", torch.version.cuda)
