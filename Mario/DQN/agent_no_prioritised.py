@@ -100,11 +100,11 @@ class Agent:
                  min_epsilon=0.1,
                  nb_warmup=250_000,
                  nb_actions=5,
-                 memory_capacity=50_000,
+                 memory_capacity=100_000,
                  batch_size=32,
                  learning_rate=0.00020,
                  gamma=0.99,
-                 sync_network_rate=1_000,
+                 sync_network_rate=32_000,
                  use_vit=False
                  ):
 
@@ -133,7 +133,6 @@ class Agent:
         #epsilon hyper parameters - update epsilon at every time step.
         self.epsilon = epsilon
         self.min_epsilon = min_epsilon
-        self.init_epsilon = 1.0
         self.epsilon_decay = 0.99999975#1- (((epsilon - min_epsilon) / nb_warmup) *2) # linear decay rate, close to the nb_warmup steps count
 
         self.game_steps = 0 #track how many steps taken over entire training
@@ -179,14 +178,12 @@ class Agent:
             return self.model(state).argmax().item()
 
     def decay_epsilon(self):
-        # linear decay : 
         self.epsilon = max(self.epsilon * self.epsilon_decay, self.min_epsilon)
 
     def sync_networks(self):
         if self.game_steps % self.sync_network_rate == 0 and self.game_steps > 0:
             self.target_model.load_state_dict(self.model.state_dict()) #keep the target_model lined up with main model, its learning in hops
-            print(f"synced target and online networks, current game step = {self.game_steps}")
-    
+                
     #epochs = how many iterations to train for
     def train(self, epochs):
         

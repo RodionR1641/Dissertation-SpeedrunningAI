@@ -215,7 +215,7 @@ def parse_args():
         help="coefficient of the value function")
     parser.add_argument("--max-grad-norm", type=float, default=0.5, #0.5 is safer
         help="the maximum norm for the gradient clipping")
-    parser.add_argument("--target-kl", type=float, default=None, #0.03 is quite lenient, but KL divergence stopping can be brittle, maybe stop exploration
+    parser.add_argument("--target-kl", type=float, default=0.03, #0.03 is quite lenient, but KL divergence stopping can be brittle, maybe stop exploration
         help="the target KL divergence threshold")
     
     args = parser.parse_args()
@@ -270,10 +270,6 @@ if __name__ == "__main__":
     # terminate or truncate
     # so at end of j-th rollout phase, next_obs can be used to estimate the value of the final state during learning phase and
     # the beginning of the j+1th rollout phase, next_obs becomes the initial observation in data
-    """
-    envs = gym.vector.AsyncVectorEnv(
-        [make_env(args.gym_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
-    )"""
     
     envs = gym.vector.SyncVectorEnv(
         [make_env(args.gym_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]

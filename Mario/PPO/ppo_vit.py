@@ -84,8 +84,8 @@ def save_models(num_updates,game_steps,num_completed_episodes,total_episodes,bes
     }
 
     print("...saving checkpoint...")
-    if not os.path.exists("models_vit/ppo"):
-        os.makedirs("models_vit/ppo",exist_ok=True)
+    if not os.path.exists("models/ppo_vit"):
+        os.makedirs("models/ppo_vit",exist_ok=True)
     torch.save(checkpoint,weights_filename)
 
 #if model doesnt exist, we just have a random model
@@ -180,7 +180,7 @@ def parse_args():
         help="coefficient of the value function")
     parser.add_argument("--max-grad-norm", type=float, default=0.5, #0.5 is safer
         help="the maximum norm for the gradient clipping")
-    parser.add_argument("--target-kl", type=float, default=None, #0.03 is quite lenient, but KL divergence stopping can be brittle, maybe stop exploration
+    parser.add_argument("--target-kl", type=float, default=0.03, #0.03 is quite lenient, but KL divergence stopping can be brittle, maybe stop exploration
         help="the target KL divergence threshold")
     
     args = parser.parse_args()
