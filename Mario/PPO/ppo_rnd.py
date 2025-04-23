@@ -382,8 +382,8 @@ if __name__ == "__main__":
     actions = torch.zeros((args.num_steps, args.num_envs) + envs.single_action_space.shape).to(device)
     logprobs = torch.zeros((args.num_steps, args.num_envs)).to(device)
     rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)
-    extrinsic_rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)
-    intrinsic_rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)
+    extrinsic_rewards = np.zeros((args.num_steps, args.num_envs), dtype=np.float32)
+    intrinsic_rewards = np.zeros((args.num_steps, args.num_envs), dtype=np.float32)
     dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
     values = torch.zeros((args.num_steps, args.num_envs)).to(device)
 
@@ -451,33 +451,32 @@ if __name__ == "__main__":
                 action,logprob,_,value = ac_model.get_action_plus_value(next_obs) # actor critic takes current state
                 # and gives back action, logprob of said action and critics estimate of value
                 values[step] = value.flatten() #1d tensor for value
+
+                #Predicting RND reward on the state
+                true_intrinsic = target_rnd(next_obs)
+                predicted_intrinsic = model_rnd(next_obs)
+                #the RND reward is just the loss between target and predicted
+                #the higher the loss, the less visited the state is likely to be so its novel -> want to encourage exploration
+                intrinsic_reward = torch.pow(predicted_intrinsic - true_intrinsic, 2).sum(dim=1)
+                #clamp the reward
+                intrinsic_reward_clamped = intrinsic_reward.clamp(-2.0,2.0) #keep the rewards clamped to not have too much effect
+            
             #store action and log probs
             actions[step] = action
             logprobs[step] = logprob
 
-            #Predicting RND reward on the state
-            true_intrinsic = target_rnd(next_obs)
-            predicted_intrinsic = model_rnd(next_obs)
-
-            #the RND reward is just the loss between target and predicted
-            #the higher the loss, the less visited the state is likely to be so its novel -> want to encourage exploration
-            intrinsic_reward = torch.pow(predicted_intrinsic - true_intrinsic, 2).sum(dim=1)
-            #clamp the reward
-            intrinsic_reward_clamped = intrinsic_reward.clamp(-2.0,2.0) #keep the rewards clamped to not have too much effect
-
             next_obs, reward, done, info = envs.step(action.cpu().numpy()) #action on cpu, converted to numpy as env expects it to be
-            #store rewards and update variables, make sure tensors
 
+            #store rewards and update variables
+            extrinsic_rewards[step] = reward
 
             extrinsic_reward = reward
             reward = torch.tensor(reward).to(device).view(-1)
             total_reward = reward + intrinsic_reward_clamped #detach as dont want to propagate on intrinisic reward during PPO loss calculations
 
             rewards[step] = total_reward
-            #rewards[step] = torch.tensor(total_reward).to(device).view(-1)# to gpu
-            extrinsic_rewards[step] = torch.tensor(extrinsic_reward).to(device).view(-1)
             #store unclamped version for learning
-            intrinsic_rewards[step] = intrinsic_reward
+            intrinsic_rewards[step] = intrinsic_reward.detach().cpu().numpy()
             
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(done).to(device)   #reassign variables
 
@@ -693,12 +692,12 @@ if __name__ == "__main__":
                 nn.utils.clip_grad_norm_(model_rnd.parameters(),args.max_grad_norm)
                 optimizer_rnd.step()
 
-                if game_steps % 500 == 0:
+                if game_steps % 1 == 0:
                     plot_gradient_norms(model_rnd,game_steps,rnd=True) #plot gradient norms for rnd
 
                     # Convert 2D tensor to flattened numpy array (example for intrinsic rewards)
-                    intrinsic_rewards_flat = intrinsic_rewards.reshape(-1).cpu().detach().numpy()  # Flatten and convert to numpy
-                    extrinsic_rewards_flat = extrinsic_rewards.reshape(-1).cpu().detach().numpy()
+                    intrinsic_rewards_flat = intrinsic_rewards.reshape(-1)#.cpu().detach().numpy()  # Flatten and convert to numpy
+                    extrinsic_rewards_flat = extrinsic_rewards.reshape(-1)#.cpu().detach().numpy()
 
                     # Create a WandB Table with the flattened data
                     data_i = [[val] for val in intrinsic_rewards_flat]
