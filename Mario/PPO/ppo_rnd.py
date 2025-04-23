@@ -508,8 +508,8 @@ if __name__ == "__main__":
 
                         if item["time"] > best_time_episode:
                             #find the previous file with this old best time
-                            filename = f"models/ppo/best_{best_time_episode}.pth"
-                            new_filename = f"models/ppo/best_{item['time']}.pth"
+                            filename = f"models/ppo_rnd/best_{best_time_episode}.pth"
+                            new_filename = f"models/ppo_rnd/best_{item['time']}.pth"
 
                             #rename so that not saving a new file for each new time
                             if os.path.exists(filename):

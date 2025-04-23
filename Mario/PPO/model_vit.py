@@ -15,32 +15,47 @@ class MobileViTFeatureExtractor(nn.Module):
     def __init__(self,device="cpu",model_name="vit_tiny_patch16_224"):
         super().__init__()
         
-        self.model = timm.create_model(model_name, pretrained=True)
-        self.feature_dim = 192 #the last layer size flattened
+        self.model = timm.create_model(model_name, pretrained=True, num_classes=0)
+        #self.feature_dim = self.model.head.in_features #the last layer size flattened
         self.device = device
 
         #this is to make the model accept greyscale input instead of rgb 3 channel input
-        first_conv_layer = self.model.patch_embde
-        self.model.stem = ConvNormAct(
-            in_channels=4,  # Grayscale input
-            out_channels=first_conv_layer.proj.out_channels,
-            kernel_size=first_conv_layer.proj.kernel_size,
-            stride=first_conv_layer.proj.stride,
-            padding=first_conv_layer.proj.padding,
-            bias=first_conv_layer.proj.bias is not None,
-            #dilation=first_conv_layer.conv.dilation,
-            #groups=first_conv_layer.conv.groups
+
+        # Modify input channels
+        original_conv = self.model.patch_embed.proj
+        self.model.patch_embed.proj = nn.Conv2d(
+            in_channels=4,  # Your input channels
+            out_channels=original_conv.out_channels,
+            kernel_size=original_conv.kernel_size,
+            stride=original_conv.stride,
+            padding=original_conv.padding,
+            bias=(original_conv.bias is not None)
         )
 
+
+        self.feature_dim = self.model.embed_dim
         self.to(self.device)
     
     def forward(self, x):
-        x = x.to(self.device)
+
+        # ViT forward
+        x = self.model.patch_embed(x)
+        """
+        cls_token = self.model.cls_token.expand(x.shape[0], -1, -1)
+        x = torch.cat((cls_token, x), dim=1)
+        x = self.model.pos_drop(x + self.model.pos_embed)
+        x = self.model.blocks(x)
+        x = self.model.norm(x)
+        """
+        return x[:, 0]  # Return class token
+        
+        """
         features = self.model(x)
         features_last = features[-1]  # Get the last feature map
         return features_last.flatten(start_dim=1)  # Flatten to have shape (batch_size, flattened_feature_num)
+        """
 
-class MarioNet_ViT(nn.Module):
+class MarioNet(nn.Module):
     def __init__(self,envs,input_shape,device="cpu"):
         super().__init__()
         self.feature_extractor = MobileViTFeatureExtractor(device)
@@ -77,17 +92,6 @@ class MarioNet_ViT(nn.Module):
             action = probabilities.sample()
         #return actions, log probabilities, entropies and values from critic
         return action,probabilities.log_prob(action), probabilities.entropy(),self.critic(hidden)
-
-
-    #pass dummy input through conv layers to get flatten size dynamically
-    def get_flat_size(self,input_shape):
-
-        with torch.no_grad():#no gradient computation, just a dummy pass
-            dummy_input = torch.zeros(1,*input_shape)
-            x = self.conv1(dummy_input)
-            x = self.conv2(x)
-            x = self.conv3(x)
-            return self.flatten(x).shape[1] #get number of features after flattening
 
 
 

@@ -68,7 +68,7 @@ def test(env, device):
 
 #these models take a while to train, want to save it and reload on start. Save both target and online for exact reproducibility
 def save_models(num_updates,game_steps,num_completed_episodes,total_episodes,best_time_episode
-                ,weights_filename="models/ppo/ppo_latest.pth"):
+                ,weights_filename="models/ppo_vit/ppo_latest.pth"):
     #state_dict() -> dictionary of the states/weights in a given model
     # we override nn.Module, so this can be done
 
@@ -84,12 +84,12 @@ def save_models(num_updates,game_steps,num_completed_episodes,total_episodes,bes
     }
 
     print("...saving checkpoint...")
-    if not os.path.exists("models/ppo"):
-        os.makedirs("models/ppo",exist_ok=True)
+    if not os.path.exists("models_vit/ppo"):
+        os.makedirs("models_vit/ppo",exist_ok=True)
     torch.save(checkpoint,weights_filename)
 
 #if model doesnt exist, we just have a random model
-def load_models(weights_filename="models/ppo/ppo_latest.pth"):
+def load_models(weights_filename="models/ppo_vit/ppo_latest.pth"):
     try:
 
         checkpoint = torch.load(weights_filename)
@@ -116,7 +116,7 @@ def load_models(weights_filename="models/ppo/ppo_latest.pth"):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--exp-name", type=str, default="PPO_experiment",
+    parser.add_argument("--exp-name", type=str, default="PPO_ViT_experiment",
         help="the name of this experiment")
     parser.add_argument("--gym-id", type=str, default="SuperMarioBros-1-1-v0",
         help="the id of the gym environment")
@@ -195,7 +195,7 @@ def make_env(gym_id,seed,environment_num,cap_video,run_name):
         env = Mario(device=device,env_id=gym_id,seed=seed,use_vit=True)
         if(cap_video):
             if environment_num == 0:
-                env = RecordVideo(env,"videos/PPO",name_prefix=f"{run_name}" 
+                env = RecordVideo(env,"videos/PPO_vit",name_prefix=f"{run_name}" 
                           ,episode_trigger=lambda x: x % 500 == 0)  # Record every 500th episode
         return env    
     return one_env
@@ -449,8 +449,8 @@ if __name__ == "__main__":
 
                         if item["time"] > best_time_episode:
                             #find the previous file with this old best time
-                            filename = f"models/ppo/best_{best_time_episode}.pth"
-                            new_filename = f"models/ppo/best_{item['time']}.pth"
+                            filename = f"models/ppo_vit/best_{best_time_episode}.pth"
+                            new_filename = f"models/ppo_vit/best_{item['time']}.pth"
 
                             #rename so that not saving a new file for each new time
                             if os.path.exists(filename):
@@ -658,7 +658,7 @@ if __name__ == "__main__":
                     break
         
         #logged output saved in wandb 
-        if update % 10 == 0:
+        if update % 1 == 0:
             print("")
             if loss_count > 0:
                     print(f"SPS = {sps}, Episode return = {episodic_reward} \
@@ -672,7 +672,7 @@ if __name__ == "__main__":
         if update % 1000 == 0:
             save_models(num_updates=update,game_steps=game_steps,num_completed_episodes=num_completed_episodes,
                         total_episodes=total_episodes, best_time_episode=best_time_episode,
-                        weights_filename=f"models/ppo/ppo_iter_{update}.pth")
+                        weights_filename=f"models/ppo_vit/ppo_iter_{update}.pth")
 
         #debug variable:explained variance - indicate if the value function is a good indicator of the returns
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
