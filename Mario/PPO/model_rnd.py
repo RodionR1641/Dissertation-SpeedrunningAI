@@ -23,8 +23,8 @@ class MarioNet(nn.Module):
         )
         
         
-        self.critic = nn.Linear(512,1)
-        self.actor = nn.Linear(512,envs.single_action_space.n)
+        self.critic = layer_init(nn.Linear(512,1),std=1.0)
+        self.actor = layer_init(nn.Linear(512,envs.single_action_space.n),std=0.01)
         
         self.device = device
         self.to(device)
@@ -70,9 +70,9 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0): #use sqrt 2 as standard d
 # how well the learned model matches a random target
 class RND_model(nn.Module):
     def __init__(self,
-                 input_shape
-                 ,device="cpu"
-                 ):
+                input_shape
+                ,device="cpu"
+                ):
         super(RND_model,self).__init__()
 
         self.relu = nn.ReLU()

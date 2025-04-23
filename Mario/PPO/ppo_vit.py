@@ -287,7 +287,7 @@ if __name__ == "__main__":
                 # Resume the existing run
                 run = wandb.init(
                     id=run_id,
-                    resume="must",  # Only resume if the run_id exists
+                    resume="allow", 
                     project=args.wandb_project_name,
                     entity=args.wandb_entity,
                     config=vars(args),
@@ -658,7 +658,7 @@ if __name__ == "__main__":
                     break
         
         #logged output saved in wandb 
-        if update % 1 == 0:
+        if update % 10 == 0:
             print("")
             if loss_count > 0:
                     print(f"SPS = {sps}, Episode return = {episodic_reward} \

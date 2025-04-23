@@ -75,6 +75,9 @@ def save_models(num_updates,game_steps,num_completed_episodes,total_episodes,bes
     checkpoint = {
         'ac_model_state_dict': ac_model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
+        'model_rnd_state_dict': model_rnd.state_dict(),
+        'target_rnd_state_dict': target_rnd.state_dict(),
+        'optimizer_rnd_state_dict': optimizer_rnd.state_dict(),
         'learning_rate': optimizer.param_groups[0]["lr"],  # Save the learning rate for the first group
         'num_updates': num_updates,      # Save the current epoch
         'game_steps': game_steps,  # Save the game step
@@ -94,8 +97,11 @@ def load_models(weights_filename="models/ppo_rnd/ppo_latest.pth"):
 
         checkpoint = torch.load(weights_filename)
         ac_model.load_state_dict(checkpoint["ac_model_state_dict"])
+        model_rnd.load_state_dict(checkpoint["model_rnd_state_dict"])
+        target_rnd.load_state_dict(checkpoint["target_rnd_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         optimizer.param_groups[0]["lr"] = checkpoint['learning_rate']
+        optimizer_rnd.load_state_dict(checkpoint["optimizer_rnd_state_dict"])
         num_updates = checkpoint["num_updates"]
         game_steps = checkpoint["game_steps"]
         num_completed_episodes = checkpoint["num_completed_episodes"]
@@ -114,7 +120,7 @@ def load_models(weights_filename="models/ppo_rnd/ppo_latest.pth"):
         raise ModelLoadingError(f"Failed to load models from {weights_filename}") from e
 
 #plots the gradient norms for the specified model
-def plot_gradient_norms(self,model,rnd=False):
+def plot_gradient_norms(model,game_steps,rnd=False):
     #Track gradient norms for monitoring stability and see exploding or vanishing gradients
     total_norm = 0.0
     for p in model.parameters():
@@ -132,13 +138,13 @@ def plot_gradient_norms(self,model,rnd=False):
     }
     if rnd:
         wandb.log({
-            "game_steps": self.game_steps,
+            "game_steps": game_steps,
             "Gradient_rnd/gradient_norm_total": total_norm,
             **{f"Gradient_rnd/gradients/gradient_{name}": norm for name, norm in layer_norms.items()}
         },commit=False)
     else:
         wandb.log({
-            "game_steps": self.game_steps,
+            "game_steps": game_steps,
             "Gradient/gradient_norm_total": total_norm,
             **{f"Gradient/gradients/gradient_{name}": norm for name, norm in layer_norms.items()}
         },commit=False)
@@ -323,7 +329,7 @@ if __name__ == "__main__":
                 # Resume the existing run
                 run = wandb.init(
                     id=run_id,
-                    resume="must",  # Only resume if the run_id exists
+                    resume="allow", 
                     project=args.wandb_project_name,
                     entity=args.wandb_entity,
                     config=vars(args),
@@ -579,7 +585,6 @@ if __name__ == "__main__":
         b_actions = actions.reshape((-1,) + envs.single_action_space.shape)
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
-        b_intrinsic_rewards = intrinsic_rewards.reshape(-1)
         b_values = values.reshape(-1)
 
         #get the minibatch now. Acquire all the indices of entire batch, and for each update_epoch -> shuffle these indices.
@@ -690,8 +695,57 @@ if __name__ == "__main__":
                 loss_rnd = torch.pow(intrinsic_predicted - intrinsic_true,2).mean()
                 loss_rnd.backward()
 
-                if game_steps % 500 == 0:
-                    plot_gradient_norms(model_rnd,rnd=True) #plot gradient norms for rnd
+                if game_steps % 1 == 0:
+                    plot_gradient_norms(model_rnd,game_steps,rnd=True) #plot gradient norms for rnd
+
+                    # Convert 2D tensor to flattened numpy array (example for intrinsic rewards)
+                    intrinsic_rewards_flat = intrinsic_rewards.reshape(-1).cpu().detach().numpy()  # Flatten and convert to numpy
+                    extrinsic_rewards_flat = extrinsic_rewards.reshape(-1).cpu().detach().numpy()
+
+                    # Create a WandB Table with the flattened data
+                    data_i = [[val] for val in intrinsic_rewards_flat]
+                    table_i = wandb.Table(data=data_i, columns=["intrinsic_rewards"])
+
+                    data_e = [[val] for val in extrinsic_rewards_flat]
+                    table_e = wandb.Table(data=data_e, columns=["extrinsic_rewards"])
+
+                    # Log the histogram with proper axes
+                    wandb.log({
+                        "intrinsic_rewards_distribution": wandb.plot.histogram(
+                            table_i, 
+                            value="intrinsic_rewards",  # Column name from the table
+                            title="Intrinsic Reward Distribution"
+                        ),
+                        # Optional: Log scalar metrics too
+                        "intrinsic_rewards_mean": np.mean(intrinsic_rewards_flat)
+                    })
+
+                    wandb.log({
+                        "extrinsic_rewards_distribution": wandb.plot.histogram(
+                            table_e, 
+                            value="extrinsic_rewards",  # Column name from the table
+                            title="Extrinsic Reward Distribution"
+                        ),
+                        # Optional: Log scalar metrics too
+                        "extrinsic_rewards_mean": np.mean(extrinsic_rewards_flat)
+                    })
+
+                    """
+                    #plot rnd distribution of rewards
+                    b_intrinsic_rewards = intrinsic_rewards.reshape(-1).cpu().detach().numpy()  # Convert to numpy
+                    b_extrinsic_rewards = extrinsic_rewards.reshape(-1).cpu().detach().numpy()  # Convert to numpy
+                    
+                    wandb.log({
+                        "intrinsic_rewards": b_intrinsic_rewards,
+                        "intrinsic_rewards_hist": wandb.Histogram(b_intrinsic_rewards)
+                    })
+
+                    wandb.log({
+                        "extrinsic_rewards": b_extrinsic_rewards,
+                        "extrinsic_rewards_hist": wandb.Histogram(b_extrinsic_rewards),
+                    })
+                    """
+
 
                 nn.utils.clip_grad_norm_(model_rnd.parameters(),args.max_grad_norm)
                 optimizer_rnd.step()
@@ -712,7 +766,7 @@ if __name__ == "__main__":
                 optimizer.step()
 
                 if game_steps % 500 == 0:
-                    plot_gradient_norms(ac_model)
+                    plot_gradient_norms(ac_model,game_steps)
 
 
             #early stopping: helps to prevent policy changing too much in a single update. IF KL divergence extends threshold
@@ -772,6 +826,8 @@ if __name__ == "__main__":
             "losses/approx_kl": approx_kl.item(),
             "losses/clipfrac": np.mean(clipfracs),
             "losses/explained_variance": explained_var,
+
+            #track intrinsic and extrinsic rewards
 
             "Charts/SPS": sps
         })
