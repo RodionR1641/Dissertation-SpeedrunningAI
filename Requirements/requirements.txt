@@ -1,0 +1,8 @@
+pip==20.3.4
+torch
+torchvision
+torchaudio
+gym-super-mario-bros
+wandb
+lz4
+timm
