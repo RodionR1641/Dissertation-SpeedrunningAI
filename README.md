@@ -35,17 +35,23 @@ A comprehensive benchmark of 8 deep reinforcement learning methods applied to Su
 - wandb 0.19.9+
 
 ### Full environment setup can be found in the Code/Requirements section in "user_specified.yml" conda environment setup 
-conda env create -f user_specified_only.yml
-pip install -r requirements.txt
+`conda env create -f user_specified_only.yml`
+
+`pip install -r requirements.txt`
 
 
 ## 🤖 Usage
 
-To train the agents, the 
+To train the agents, the files are: Mario/PPO/ppo-x.py where x can be a variant of ppo e.g. ppo-rnd; Mario/DQN/main.py where the agent-type is:
+0(Dueling DDQN), 1(Rainbow) and 2(Rainbow-RND); Mario/A2C/a2c_main.py 
+
+The agents can be trained via running from the command line with argument flags attached to tune certain hyperparameters, e.g. :
+
+`python main.py --num-epochs 10000`
 
 ## 📊 Results
 
-![Alt Text](images/diagram.png "Optional Title")
+![Alt Text](Results/Figures/TimeComplete.png "Optional Title")
 
 ### Key Findings
 1. **PPO** variations achieved fastest completion times, achieving the best time of 355 seconds on first level(completion time of 45 seconds).
@@ -53,7 +59,7 @@ To train the agents, the
 2. **Implementation and hyperparameter tuning** decides the performance of an agent, regardless of a method having good theoretical foundations:
    - Our Rainbow DQN implementation was unable to consistently complete the level given the same hyperparameters as the Original Rainbow DQN paper
 
-3. **CNN and ViT architecture matters** as overly complex models fail to capture
+3. **CNN and ViT architecture matters** as overly complex models fail to play the game well, and pre-trained ViTs struggle to adapt
 
 ## 🎥 Demo GIF
 
