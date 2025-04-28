@@ -2,10 +2,10 @@
 
 ![Mario Gameplay Demo](media/demo.gif) 
 
-A comprehensive benchmark of 7 deep reinforcement learning methods applied to Super Mario Bros, comparing their performance in speedrunning and completion tasks.
+A comprehensive benchmark of 8 deep reinforcement learning methods applied to Super Mario Bros, comparing their performance in speedrunning and completion tasks.
 
 ## 📌 Key Features
-- **7 RL Algorithms Implemented**: Dueling DDQN, PPO,PPO-LSTM A2C,
+- **8 RL Algorithms Implemented**, based on 4 base algorithms(PPO,A2C,Dueling DDQN, Rainbow DQN)
 - **Speedrunning Focus**: Optimized for fast level completion
 - **Modular Design**: Easy to extend with new algorithms
 - **WandB Integration**: Full training metrics tracking
@@ -19,6 +19,7 @@ A comprehensive benchmark of 7 deep reinforcement learning methods applied to Su
    - [x] PPO with RND exploration bonus (Random Network Distillation)
    - [x] A2C (Advantage Actor-Critic)
    - [x] Rainbow DQN
+   - [x] Rainbow DQN with RND 
 
 2. **Research Focus**
    - Speedrunning performance metrics of completion time and episodic reward return
@@ -37,29 +38,29 @@ A comprehensive benchmark of 7 deep reinforcement learning methods applied to Su
 conda env create -f user_specified_only.yml
 pip install -r requirements.txt
 
+
+## 🤖 Usage
+
+To train the agents, the 
+
 ## 📊 Results
 
-### Performance Comparison (World 1-1)
-| Method         | Avg Completion Time ↓ | Success Rate ↑ | Avg Reward ↑ | Steps to Converge ↓ |
-|----------------|----------------------|---------------|-------------|--------------------|
-| **PPO-RND**    | 182s                 | 92%           | 3,142       | 1.2M               |
-| **PPO-LSTM**   | 195s                 | 88%           | 2,987       | 1.8M               |
-| **Rainbow DQN**| 214s                 | 85%           | 2,756       | 2.7M               |
-| **A2C**        | 231s                 | 79%           | 2,412       | 1.5M               |
-| **Vanilla PPO**| 248s                 | 76%           | 2,305       | 1.1M               |
-| **DDQN**       | 263s                 | 72%           | 2,187       | 3.4M               |
-| **PPO-ViT**    | 297s                 | 68%           | 1,956       | 4.2M               |
+![Alt Text](images/diagram.png "Optional Title")
 
 ### Key Findings
 1. **PPO** variations achieved fastest completion times, achieving the best time of 355 seconds on first level(completion time of 45 seconds).
 
 2. **Implementation and hyperparameter tuning** decides the performance of an agent, regardless of a method having good theoretical foundations:
-   - Our Rainbow DQN implementation was unable to consistently complete the level given the same hyperparameters as [arxiv:-43-24-]
+   - Our Rainbow DQN implementation was unable to consistently complete the level given the same hyperparameters as the Original Rainbow DQN paper
+
+3. **CNN and ViT architecture matters** as overly complex models fail to capture
 
 ## 🎥 Demo GIF
 
-This is our PPO-LSTM agent trained on the first level
-![Mario RL Demo](media/demo.gif)
+This is our PPO-RND agent trained on the first level
+![Mario RL Demo](Results/Videos/SuperMarioBros-1-1-v0__PPO_RND_experiment__777__2025-04-23_20-49-04-episode-5000.mp4)
+
+##  Usage
 
 ## 📂 Repository Structure
 
