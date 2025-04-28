@@ -64,12 +64,12 @@ The agents can be trained via running from the command line with argument flags 
 ## 🎥 Demo GIF
 
 This is our PPO-RND agent trained on the first level
-![Mario RL Demo](Results/Videos/SuperMarioBros-1-1-v0__PPO_RND_experiment__777__2025-04-23_20-49-04-episode-5000.mp4)
+![Mario RL Demo](Results/Videos/SuperMarioBros-1-1-v0__PPO_RND_experiment__777__2025-04-23_20-49-04-episode-5000.gif)
 
-##  Usage
+
 
 ## 📂 Repository Structure
-
+```
 ├──Breakout/
 │ ├──agent.py -> DDQN agent
 │ └── ...
@@ -80,10 +80,10 @@ This is our PPO-RND agent trained on the first level
 │ ├── PPO -> All PPO variants
 │ └── ...
 │
-├── ClusterFiles/ -> HPC/SLURM scripts
-│
-└── Miscellaneous/ -> Utilities and extras
-
+├── Requirements/ -> has the conda "user_specified_only.yml" file and the "requirements.txt" to get the right libraries for this project
+├── Results/ -> contains the main statistical Figures and videos of agents playing on levels 
+└── ...
+```
 
 ## 📜 License
 
